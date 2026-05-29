@@ -8,9 +8,8 @@ internal static class ToolCatalog
         "collect_database_info_package",
         "collect_diagnostic_snapshot",
         "collect_server_info_package",
-        "export_admin_logs",
-        "export_audit_logs",
         "export_document_ids",
+        "export_logs",
         "export_traffic_watch",
         "find_missing_attachments",
         "get_backup_diagnostics",
@@ -73,9 +72,7 @@ internal static class ToolCatalog
         "sample_cluster_dashboard",
         "sample_runtime_events",
         "sample_thread_diagnostics",
-        "sample_traffic_watch",
         "scan_corrupted_document_ids",
-        "search_logs",
         "wait_for_indexing",
         "wait_for_operation"
     ];

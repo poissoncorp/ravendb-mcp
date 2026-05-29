@@ -31,7 +31,7 @@ public sealed class RawHttpDiagnosticsTests
     {
         var artifactsPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         await using var server = new FakeRavenHttpServer();
-        server.Text("/admin/logs/admin", "admin log line");
+        server.Text("/admin/logs/download", "admin log line");
 
         using var store = new DocumentStore { Urls = [server.Url] };
         var client = new RavenDbAdminClient(
@@ -42,7 +42,7 @@ public sealed class RawHttpDiagnosticsTests
                 ArtifactsPath = artifactsPath
             }));
 
-        var result = await client.ExportAdminLogs(null, null, CancellationToken.None);
+        var result = await client.ExportLogs(null, null, CancellationToken.None);
 
         Assert.StartsWith(artifactsPath, result.Path);
         Assert.Equal("text/plain", result.ContentType);
