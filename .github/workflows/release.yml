@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore RavenDB.Mcp.slnx
+
+      - name: Test package-safe suite
+        run: dotnet test RavenDB.Mcp.slnx --configuration Release --no-restore --filter "FullyQualifiedName~DocumentStoreFactoryTests|FullyQualifiedName~RavenDbOptionsValidatorTests|FullyQualifiedName~McpToolContractTests|FullyQualifiedName~RawHttpDiagnosticsTests"
+
+      - name: Pack NuGet tool
+        run: dotnet pack src/RavenDB.Mcp/RavenDB.Mcp.csproj --configuration Release --no-restore --output artifacts/package
+
+      - name: Publish self-contained executables
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $runtimes = @('win-x64', 'linux-x64', 'osx-x64', 'osx-arm64')
+
+          foreach ($runtime in $runtimes) {
+            dotnet publish src/RavenDB.Mcp/RavenDB.Mcp.csproj `
+              --configuration Release `
+              --runtime $runtime `
+              --self-contained true `
+              --output "artifacts/publish/$runtime" `
+              /p:PublishSingleFile=true
+
+            if ($runtime.StartsWith('win-')) {
+              Compress-Archive `
+                -Path "artifacts/publish/$runtime/*" `
+                -DestinationPath "artifacts/package/ravendb-mcp-$runtime.zip" `
+                -Force
+            } else {
+              tar -czf "artifacts/package/ravendb-mcp-$runtime.tar.gz" -C "artifacts/publish/$runtime" .
+            }
+          }
+
+      - name: Generate checksums
+        shell: pwsh
+        run: |
+          Get-ChildItem artifacts/package -File |
+            Sort-Object Name |
+            ForEach-Object {
+              $hash = Get-FileHash $_.FullName -Algorithm SHA256
+              "$($hash.Hash.ToLowerInvariant())  $($_.Name)"
+            } |
+            Set-Content artifacts/package/checksums.txt
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ravendb-mcp-release
+          path: artifacts/package/*
+
+      - name: Create GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" artifacts/package/* --generate-notes --verify-tag

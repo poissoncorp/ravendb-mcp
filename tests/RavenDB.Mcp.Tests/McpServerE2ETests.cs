@@ -39,9 +39,21 @@ public sealed class McpServerE2ETests(RavenDbTestFixture fixture)
 
         using var serverDiagnostics = await client.CallTool("get_server_diagnostics_overview", null, timeout.Token);
         Assert.Equal(JsonValueKind.Object, serverDiagnostics.RootElement.GetProperty("metrics").ValueKind);
+        AssertAvailable(serverDiagnostics, "routes");
+        AssertAvailable(serverDiagnostics, "configuration");
+        AssertAvailable(serverDiagnostics, "metrics");
+        AssertAvailable(serverDiagnostics, "cpuCredits");
+        AssertAvailable(serverDiagnostics, "idleDatabases");
+        AssertAvailable(serverDiagnostics, "clusterMaintenance");
 
         using var clusterDiagnostics = await client.CallTool("get_cluster_diagnostics_overview", null, timeout.Token);
         Assert.Equal(JsonValueKind.Object, clusterDiagnostics.RootElement.GetProperty("observerDecisions").ValueKind);
+        AssertAvailable(clusterDiagnostics, "observerDecisions");
+        AssertAvailable(clusterDiagnostics, "clusterLog");
+        AssertAvailable(clusterDiagnostics, "history");
+        AssertAvailable(clusterDiagnostics, "remoteConnections");
+        AssertAvailable(clusterDiagnostics, "engineLogs");
+        AssertAvailable(clusterDiagnostics, "stateChanges");
 
         using var serverWideClientConfiguration = await client.CallTool("get_server_wide_client_configuration", null, timeout.Token);
         Assert.True(serverWideClientConfiguration.RootElement.GetProperty("configuration").ValueKind is JsonValueKind.Object or JsonValueKind.Null);
@@ -102,6 +114,9 @@ public sealed class McpServerE2ETests(RavenDbTestFixture fixture)
         Assert.Equal(JsonValueKind.Array, indexingOverview.RootElement.GetProperty("performance").ValueKind);
         Assert.Equal(JsonValueKind.Object, indexingOverview.RootElement.GetProperty("status").ValueKind);
         Assert.Equal(JsonValueKind.Object, indexingOverview.RootElement.GetProperty("progress").ValueKind);
+        AssertAvailable(indexingOverview, "progress");
+        AssertAvailabilityMetadata(indexingOverview, "suggestedMerges");
+        AssertAvailable(indexingOverview, "totalTime");
 
         using var index = await client.CallTool(
             "get_index",
@@ -134,6 +149,8 @@ public sealed class McpServerE2ETests(RavenDbTestFixture fixture)
             new { databaseName = fixture.DatabaseName },
             timeout.Token);
         Assert.Equal(JsonValueKind.Object, queryDiagnostics.RootElement.GetProperty("runningQueries").ValueKind);
+        AssertAvailable(queryDiagnostics, "runningQueries");
+        AssertAvailable(queryDiagnostics, "queryCache");
 
         using var backupDiagnostics = await client.CallTool(
             "get_backup_diagnostics",
@@ -222,6 +239,46 @@ public sealed class McpServerE2ETests(RavenDbTestFixture fixture)
         Assert.Equal(JsonValueKind.Object, tcpStats.RootElement.GetProperty("tcp").ValueKind);
     }
 
+    [Fact]
+    public async Task LoadsRavenDbUrlFromConfigFile()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var configPath = Path.Combine(Path.GetTempPath(), $"ravendb-mcp-{Guid.NewGuid():N}.json");
+
+        try
+        {
+            await File.WriteAllTextAsync(
+                configPath,
+                JsonSerializer.Serialize(new RavenDbOptions { Urls = [fixture.Url] }),
+                timeout.Token);
+
+            await using var client = McpStdioClient.StartWithConfigFile(configPath);
+            await client.Initialize(timeout.Token);
+
+            using var databases = await client.CallTool("list_databases", null, timeout.Token);
+
+            Assert.Contains(
+                fixture.DatabaseName,
+                databases.RootElement.GetProperty("databases").EnumerateArray().Select(database => database.GetString()));
+        }
+        finally
+        {
+            File.Delete(configPath);
+        }
+    }
+
+    private static void AssertAvailable(JsonDocument document, string propertyName)
+    {
+        var section = document.RootElement.GetProperty(propertyName);
+        Assert.True(section.GetProperty("available").GetBoolean(), $"{propertyName}: {section}");
+    }
+
+    private static void AssertAvailabilityMetadata(JsonDocument document, string propertyName)
+    {
+        var section = document.RootElement.GetProperty(propertyName);
+        Assert.True(section.GetProperty("available").ValueKind is JsonValueKind.True or JsonValueKind.False);
+    }
+
 }
 
 internal sealed class McpStdioClient : IAsyncDisposable
@@ -239,20 +296,18 @@ internal sealed class McpStdioClient : IAsyncDisposable
         return Start(new RavenDbOptions { Urls = [ravenDbUrl] });
     }
 
+    public static McpStdioClient StartWithConfigFile(string configPath)
+    {
+        var startInfo = CreateStartInfo();
+        startInfo.ArgumentList.Add("--config");
+        startInfo.ArgumentList.Add(configPath);
+
+        return StartProcess(startInfo);
+    }
+
     public static McpStdioClient Start(RavenDbOptions options)
     {
-        var serverAssembly = typeof(global::RavenDB.Mcp.RavenDB.RavenDbAdminClient).Assembly.Location;
-
-        var startInfo = new ProcessStartInfo
-        {
-            FileName = "dotnet",
-            ArgumentList = { serverAssembly },
-            WorkingDirectory = Path.GetDirectoryName(serverAssembly)!,
-            RedirectStandardInput = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        };
+        var startInfo = CreateStartInfo();
         startInfo.Environment["Urls__0"] = options.Urls[0];
 
         if (!string.IsNullOrWhiteSpace(options.CertificatePath))
@@ -264,6 +319,27 @@ internal sealed class McpStdioClient : IAsyncDisposable
         if (options.ArtifactsPath is not null)
             startInfo.Environment["ArtifactsPath"] = options.ArtifactsPath;
 
+        return StartProcess(startInfo);
+    }
+
+    private static ProcessStartInfo CreateStartInfo()
+    {
+        var serverAssembly = typeof(global::RavenDB.Mcp.RavenDB.RavenDbAdminClient).Assembly.Location;
+
+        return new ProcessStartInfo
+        {
+            FileName = "dotnet",
+            ArgumentList = { serverAssembly },
+            WorkingDirectory = Path.GetDirectoryName(serverAssembly)!,
+            RedirectStandardInput = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+        };
+    }
+
+    private static McpStdioClient StartProcess(ProcessStartInfo startInfo)
+    {
         var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Failed to start RavenDB.Mcp process.");
 
