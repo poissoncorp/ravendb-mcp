@@ -48,18 +48,21 @@ public sealed partial class RavenDbAdminClient
         string databaseName,
         CancellationToken cancellationToken)
     {
-        var tasks = await ListOngoingTasks(databaseName, cancellationToken);
-        var backupTasks = await GetBackupTasks(databaseName, cancellationToken);
-        var etlTasks = await GetEtlTasks(databaseName, cancellationToken);
-        var replicationTasks = await GetReplicationTasks(databaseName, cancellationToken);
-        var subscriptions = await GetSubscriptions(databaseName, cancellationToken);
+        // Fetch the database record once (the per-category methods would each refetch it)
+        // and pull subscriptions concurrently.
+        var recordTask = GetDatabaseRecordJson(databaseName, cancellationToken);
+        var subscriptionsTask = GetSubscriptions(databaseName, cancellationToken);
+        await Task.WhenAll(recordTask, subscriptionsTask);
+
+        var record = await recordTask;
+        var subscriptions = await subscriptionsTask;
 
         return new GetDatabaseTasksResult(
             databaseName,
-            tasks.Tasks,
-            backupTasks.Tasks,
-            etlTasks.Tasks,
-            replicationTasks.Tasks,
+            SelectRecordProperties(record, "backup", "replication", "etl", "subscription", "sink", "expiration", "refresh", "archival"),
+            SelectRecordProperties(record, "backup"),
+            SelectRecordProperties(record, "etl"),
+            SelectRecordProperties(record, "replication"),
             subscriptions.Subscriptions);
     }
 

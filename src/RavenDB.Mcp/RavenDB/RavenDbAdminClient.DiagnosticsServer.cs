@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Text.Json;
+using Raven.Client.Documents.Operations;
+using Raven.Client.ServerWide.Commands;
 using RavenDB.Mcp.Tools;
 
 namespace RavenDB.Mcp.RavenDB;
@@ -8,25 +10,42 @@ public sealed partial class RavenDbAdminClient
 {
     public async Task<GetServerDiagnosticsOverviewResult> GetServerDiagnosticsOverview(CancellationToken cancellationToken)
     {
+        var routesTask = TryGetServerJson("/debug/routes", cancellationToken);
+        var settingsTask = TryGetServerJson("/admin/configuration/settings", cancellationToken);
+        var metricsTask = TryGetServerJson("/admin/metrics", cancellationToken);
+        var cpuCreditsTask = TryGetServerJson("/debug/cpu-credits", cancellationToken);
+        var idleTask = TryGetServerJson("/admin/debug/databases/idle", cancellationToken);
+        var licenseTask = TryGetServerJson("/license-server/connectivity", cancellationToken);
+        var maintenanceTask = TryGetServerJson("/admin/cluster/maintenance-stats", cancellationToken);
+        await Task.WhenAll(routesTask, settingsTask, metricsTask, cpuCreditsTask, idleTask, licenseTask, maintenanceTask);
+
         return new GetServerDiagnosticsOverviewResult(
-            await TryGetServerJson("/debug/routes", cancellationToken),
-            await TryGetServerJson("/admin/configuration/settings", cancellationToken),
-            await TryGetServerJson("/admin/metrics", cancellationToken),
-            await TryGetServerJson("/debug/cpu-credits", cancellationToken),
-            await TryGetServerJson("/admin/debug/databases/idle", cancellationToken),
-            await TryGetServerJson("/license-server/connectivity", cancellationToken),
-            await TryGetServerJson("/admin/cluster/maintenance-stats", cancellationToken));
+            await routesTask,
+            await settingsTask,
+            await metricsTask,
+            await cpuCreditsTask,
+            await idleTask,
+            await licenseTask,
+            await maintenanceTask);
     }
 
     public async Task<GetClusterDiagnosticsOverviewResult> GetClusterDiagnosticsOverview(CancellationToken cancellationToken)
     {
+        var decisionsTask = TryGetServerJson("/admin/cluster/observer/decisions", cancellationToken);
+        var logTask = TryGetServerJson("/admin/cluster/log", cancellationToken);
+        var historyTask = TryGetServerJson("/admin/debug/cluster/history-logs", cancellationToken);
+        var remoteTask = TryGetServerJson("/admin/debug/node/remote-connections", cancellationToken);
+        var engineTask = TryGetServerJson("/admin/debug/node/engine-logs", cancellationToken);
+        var stateTask = TryGetServerJson("/admin/debug/node/state-change-history", cancellationToken);
+        await Task.WhenAll(decisionsTask, logTask, historyTask, remoteTask, engineTask, stateTask);
+
         return new GetClusterDiagnosticsOverviewResult(
-            await TryGetServerJson("/admin/cluster/observer/decisions", cancellationToken),
-            await TryGetServerJson("/admin/cluster/log", cancellationToken),
-            await TryGetServerJson("/admin/debug/cluster/history-logs", cancellationToken),
-            await TryGetServerJson("/admin/debug/node/remote-connections", cancellationToken),
-            await TryGetServerJson("/admin/debug/node/engine-logs", cancellationToken),
-            await TryGetServerJson("/admin/debug/node/state-change-history", cancellationToken));
+            await decisionsTask,
+            await logTask,
+            await historyTask,
+            await remoteTask,
+            await engineTask,
+            await stateTask);
     }
 
     public async Task<PingClusterNodeResult> PingClusterNode(string url, CancellationToken cancellationToken)
@@ -57,10 +76,20 @@ public sealed partial class RavenDbAdminClient
 
     public async Task<DiagnosticTextSampleResult> SampleClusterDashboard(int seconds, CancellationToken cancellationToken)
     {
+        // The cluster-dashboard watch feed is a WebSocket and requires the target node tag.
+        var node = await ExecuteServerCommand(new GetNodeInfoCommand(), cancellationToken);
+        var sample = await GetServerWebSocketSample(
+            "/cluster-dashboard/watch",
+            seconds,
+            cancellationToken,
+            ("node", node.NodeTag));
+
         return new DiagnosticTextSampleResult(
             "cluster_dashboard",
             Math.Clamp(seconds, 1, 30),
-            await GetServerTextSample("/cluster-dashboard/watch", seconds, cancellationToken));
+            sample.Text,
+            sample.Truncated,
+            sample.Limit);
     }
 
     public async Task<GetIndexStalenessResult> GetIndexStaleness(
@@ -139,9 +168,12 @@ public sealed partial class RavenDbAdminClient
         while (DateTime.UtcNow <= deadline)
         {
             polls++;
-            state = (await GetOperationState(databaseName, operationId, cancellationToken)).State;
+            var operationState = await ForDatabase(databaseName).SendAsync(
+                new GetOperationStateOperation(operationId),
+                token: cancellationToken);
+            state = ToJson(operationState);
 
-            if (LooksComplete(state))
+            if (operationState.Status is OperationStatus.Completed or OperationStatus.Faulted or OperationStatus.Canceled)
                 return new WaitForConditionResult("operation", databaseName, operationId, null, true, polls, state);
 
             await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
@@ -162,9 +194,12 @@ public sealed partial class RavenDbAdminClient
         while (DateTime.UtcNow <= deadline)
         {
             polls++;
-            state = (await GetIndexingStatus(databaseName, cancellationToken)).Status;
+            var stats = await ForDatabase(databaseName).SendAsync(
+                new GetStatisticsOperation(),
+                token: cancellationToken);
+            state = ToJson(stats);
 
-            if (!state.GetRawText().Contains("\"Stale\":true", StringComparison.OrdinalIgnoreCase))
+            if (stats.Indexes.All(index => !index.IsStale))
                 return new WaitForConditionResult("indexing", databaseName, null, null, true, polls, state);
 
             await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
@@ -275,9 +310,13 @@ public sealed partial class RavenDbAdminClient
 
     public async Task<DiagnosticTextSampleResult> SampleAdminLogs(int seconds, CancellationToken cancellationToken)
     {
+        // The admin logs watch feed is a WebSocket endpoint.
+        var sample = await GetServerWebSocketSample("/admin/logs/watch", seconds, cancellationToken);
         return new DiagnosticTextSampleResult(
             "admin_logs",
             Math.Clamp(seconds, 1, 30),
-            await GetServerTextSample("/admin/logs/watch", seconds, cancellationToken));
+            sample.Text,
+            sample.Truncated,
+            sample.Limit);
     }
 }

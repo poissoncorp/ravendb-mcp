@@ -4,7 +4,7 @@ namespace RavenDB.Mcp.Tools;
 
 public sealed record DiagnosticArtifactResult(string Path, string ContentType, long Bytes);
 
-public sealed record DiagnosticTextSampleResult(string Kind, int Seconds, string Sample);
+public sealed record DiagnosticTextSampleResult(string Kind, int Seconds, string Sample, bool Truncated, int Limit);
 
 public sealed record GetServerDiagnosticsOverviewResult(
     JsonElement Routes,

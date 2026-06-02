@@ -142,21 +142,22 @@ public sealed partial class RavenDbAdminClient
         string databaseName,
         CancellationToken cancellationToken)
     {
-        var cluster = await GetClusterNodes(cancellationToken);
-        var database = await GetDatabaseOverview(databaseName, cancellationToken);
-        var indexes = await GetIndexingOverview(databaseName, cancellationToken);
-        var tasks = await GetDatabaseTasks(databaseName, cancellationToken);
-        var notifications = await TryGetDatabaseJson(databaseName, "/notifications", cancellationToken);
-        var package = await CollectDatabaseInfoPackage(databaseName, cancellationToken);
+        var clusterTask = GetClusterNodes(cancellationToken);
+        var databaseTask = GetDatabaseOverview(databaseName, cancellationToken);
+        var indexesTask = GetIndexingOverview(databaseName, cancellationToken);
+        var tasksTask = GetDatabaseTasks(databaseName, cancellationToken);
+        var notificationsTask = TryGetDatabaseJson(databaseName, "/notifications", cancellationToken);
+        var packageTask = CollectDatabaseInfoPackage(databaseName, cancellationToken);
+        await Task.WhenAll(clusterTask, databaseTask, indexesTask, tasksTask, notificationsTask, packageTask);
 
         return new CollectDiagnosticSnapshotResult(
             databaseName,
-            ToJson(cluster),
-            ToJson(database),
-            ToJson(indexes),
-            tasks.Tasks,
-            notifications,
-            package);
+            ToJson(await clusterTask),
+            ToJson(await databaseTask),
+            ToJson(await indexesTask),
+            (await tasksTask).Tasks,
+            await notificationsTask,
+            await packageTask);
     }
 
     private static JsonElement SummarizeDocumentShape(JsonElement queryResult)

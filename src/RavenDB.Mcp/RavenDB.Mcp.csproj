@@ -14,6 +14,7 @@
     <PackageTags>RavenDB;MCP;diagnostics</PackageTags>
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>ravendb-mcp</ToolCommandName>
+    <PackageType>McpServer</PackageType>
   </PropertyGroup>
 
   <ItemGroup>
@@ -23,8 +24,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
     <None Include="../../README.md" Pack="true" PackagePath="" />
+    <None Include="../../.mcp/server.json" Pack="true" PackagePath=".mcp/" />
   </ItemGroup>
 
 </Project>

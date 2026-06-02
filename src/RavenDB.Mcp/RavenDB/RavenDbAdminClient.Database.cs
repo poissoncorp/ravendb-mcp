@@ -66,53 +66,36 @@ public sealed partial class RavenDbAdminClient
         string databaseName,
         CancellationToken cancellationToken)
     {
-        var stats = await GetCollectionStats(databaseName, cancellationToken);
-        var detailedStats = await GetDetailedCollectionStats(databaseName, cancellationToken);
+        var statsTask = GetCollectionStats(databaseName, cancellationToken);
+        var detailedStatsTask = GetDetailedCollectionStats(databaseName, cancellationToken);
+        await Task.WhenAll(statsTask, detailedStatsTask);
 
         return new GetCollectionOverviewResult(
             databaseName,
-            stats.Stats,
-            detailedStats.Stats);
-    }
-
-    public async Task<GetDatabaseHealthSummaryResult> GetDatabaseHealthSummary(
-        string databaseName,
-        CancellationToken cancellationToken)
-    {
-        var stats = await GetDatabaseStats(databaseName, cancellationToken);
-        var indexingStatus = await GetIndexingStatus(databaseName, cancellationToken);
-        var indexStats = await GetIndexStats(databaseName, cancellationToken);
-        var indexErrors = await GetIndexErrors(databaseName, cancellationToken);
-        var tasks = await ListOngoingTasks(databaseName, cancellationToken);
-
-        return new GetDatabaseHealthSummaryResult(
-            databaseName,
-            stats.Stats,
-            indexingStatus.Status,
-            indexStats.Stats,
-            indexErrors.Errors,
-            tasks.Tasks);
+            (await statsTask).Stats,
+            (await detailedStatsTask).Stats);
     }
 
     public async Task<GetDatabaseOverviewResult> GetDatabaseOverview(
         string databaseName,
         CancellationToken cancellationToken)
     {
-        var stats = await GetDatabaseStats(databaseName, cancellationToken);
-        var detailedStats = await GetDetailedDatabaseStats(databaseName, cancellationToken);
-        var indexingStatus = await GetIndexingStatus(databaseName, cancellationToken);
-        var indexStats = await GetIndexStats(databaseName, cancellationToken);
-        var indexErrors = await GetIndexErrors(databaseName, cancellationToken);
-        var tasks = await GetDatabaseTasks(databaseName, cancellationToken);
+        var statsTask = GetDatabaseStats(databaseName, cancellationToken);
+        var detailedStatsTask = GetDetailedDatabaseStats(databaseName, cancellationToken);
+        var indexingStatusTask = GetIndexingStatus(databaseName, cancellationToken);
+        var indexStatsTask = GetIndexStats(databaseName, cancellationToken);
+        var indexErrorsTask = GetIndexErrors(databaseName, cancellationToken);
+        var tasksTask = GetDatabaseTasks(databaseName, cancellationToken);
+        await Task.WhenAll(statsTask, detailedStatsTask, indexingStatusTask, indexStatsTask, indexErrorsTask, tasksTask);
 
         return new GetDatabaseOverviewResult(
             databaseName,
-            stats.Stats,
-            detailedStats.Stats,
-            indexingStatus.Status,
-            indexStats.Stats,
-            indexErrors.Errors,
-            tasks.Tasks);
+            (await statsTask).Stats,
+            (await detailedStatsTask).Stats,
+            (await indexingStatusTask).Status,
+            (await indexStatsTask).Stats,
+            (await indexErrorsTask).Errors,
+            (await tasksTask).Tasks);
     }
 
     public async Task<GetDatabaseConfigurationResult> GetDatabaseConfiguration(string databaseName, CancellationToken cancellationToken)

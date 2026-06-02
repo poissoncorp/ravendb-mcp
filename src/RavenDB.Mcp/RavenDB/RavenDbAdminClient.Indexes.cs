@@ -55,22 +55,26 @@ public sealed partial class RavenDbAdminClient
         string databaseName,
         CancellationToken cancellationToken)
     {
-        var indexes = await ListIndexes(databaseName, cancellationToken);
-        var stats = await GetIndexStats(databaseName, cancellationToken);
-        var errors = await GetIndexErrors(databaseName, cancellationToken);
-        var status = await GetIndexingStatus(databaseName, cancellationToken);
-        var performance = await GetIndexPerformance(databaseName, cancellationToken);
+        var indexesTask = ListIndexes(databaseName, cancellationToken);
+        var statsTask = GetIndexStats(databaseName, cancellationToken);
+        var errorsTask = GetIndexErrors(databaseName, cancellationToken);
+        var statusTask = GetIndexingStatus(databaseName, cancellationToken);
+        var performanceTask = GetIndexPerformance(databaseName, cancellationToken);
+        var progressTask = TryGetDatabaseJson(databaseName, "/indexes/progress", cancellationToken);
+        var mergeTask = TryGetDatabaseJson(databaseName, "/indexes/suggest-index-merge", cancellationToken);
+        var totalTimeTask = TryGetDatabaseJson(databaseName, "/indexes/total-time", cancellationToken);
+        await Task.WhenAll(indexesTask, statsTask, errorsTask, statusTask, performanceTask, progressTask, mergeTask, totalTimeTask);
 
         return new GetIndexingOverviewResult(
             databaseName,
-            SummarizeIndexes(indexes.Indexes),
-            stats.Stats,
-            errors.Errors,
-            status.Status,
-            performance.Performance,
-            await TryGetDatabaseJson(databaseName, "/indexes/progress", cancellationToken),
-            await TryGetDatabaseJson(databaseName, "/indexes/suggest-index-merge", cancellationToken),
-            await TryGetDatabaseJson(databaseName, "/indexes/total-time", cancellationToken));
+            SummarizeIndexes((await indexesTask).Indexes),
+            (await statsTask).Stats,
+            (await errorsTask).Errors,
+            (await statusTask).Status,
+            (await performanceTask).Performance,
+            await progressTask,
+            await mergeTask,
+            await totalTimeTask);
     }
 
     public async Task<GetIndexResult> GetIndex(

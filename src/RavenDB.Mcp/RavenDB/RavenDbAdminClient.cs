@@ -1,3 +1,5 @@
+using System.Net.WebSockets;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
@@ -20,8 +22,12 @@ public sealed partial class RavenDbAdminClient(
         IncludeFields = true
     };
 
-    private readonly RavenDbOptions? configuredOptions = options?.Value;
+    private readonly X509Certificate2? clientCertificate = LoadClientCertificate(options?.Value);
     private readonly HttpClient http = CreateHttpClient(options?.Value);
+
+    // Raw HTTP diagnostic routes target the configured primary node by design for v1.
+    // Typed Client-API calls still fail over across the cluster; raw debug/admin routes do not.
+    // TODO: topology-aware raw scans (per-node fan-out) are deferred — see ADR-0006 / the distribution+hardening plan.
     private readonly string serverUrl = (options?.Value.Urls.FirstOrDefault() ?? store.Urls.First()).TrimEnd('/');
     private readonly string artifactsPath = string.IsNullOrWhiteSpace(options?.Value.ArtifactsPath)
         ? Path.Combine(Path.GetTempPath(), "ravendb-mcp-artifacts")
@@ -113,7 +119,9 @@ public sealed partial class RavenDbAdminClient(
         return content;
     }
 
-    private async Task<string> GetServerTextSample(
+    private const int SampleCharLimit = 131_072;
+
+    private async Task<TextSample> GetServerTextSample(
         string path,
         int seconds,
         CancellationToken cancellationToken)
@@ -123,6 +131,7 @@ public sealed partial class RavenDbAdminClient(
         timeout.CancelAfter(TimeSpan.FromSeconds(sampleSeconds));
 
         var result = new StringBuilder();
+        var truncated = false;
 
         try
         {
@@ -136,8 +145,14 @@ public sealed partial class RavenDbAdminClient(
             using var reader = new StreamReader(stream);
             var buffer = new char[4096];
 
-            while (!timeout.Token.IsCancellationRequested && result.Length < 131_072)
+            while (!timeout.Token.IsCancellationRequested)
             {
+                if (result.Length >= SampleCharLimit)
+                {
+                    truncated = true;
+                    break;
+                }
+
                 var read = await reader.ReadAsync(buffer, timeout.Token);
                 if (read == 0)
                     break;
@@ -149,22 +164,95 @@ public sealed partial class RavenDbAdminClient(
         {
         }
 
-        return result.ToString();
+        return new TextSample(result.ToString(), truncated, SampleCharLimit);
     }
+
+    private readonly record struct TextSample(string Text, bool Truncated, int Limit);
 
     private static JsonElement ToJson<T>(T value)
     {
         return JsonSerializer.SerializeToElement(value, RavenDbJsonOptions);
     }
 
+    private static X509Certificate2? LoadClientCertificate(RavenDbOptions? options)
+    {
+        return options is null || string.IsNullOrWhiteSpace(options.CertificatePath)
+            ? null
+            : DocumentStoreFactory.LoadCertificate(options);
+    }
+
     private static HttpClient CreateHttpClient(RavenDbOptions? options)
     {
-        if (options is null || string.IsNullOrWhiteSpace(options.CertificatePath))
+        var certificate = LoadClientCertificate(options);
+        if (certificate is null)
             return new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
 
         var handler = new HttpClientHandler();
-        handler.ClientCertificates.Add(DocumentStoreFactory.LoadCertificate(options)!);
+        handler.ClientCertificates.Add(certificate);
         return new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(60) };
+    }
+
+    private static string ToWebSocketUrl(string httpUrl)
+    {
+        return httpUrl.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+            ? string.Concat("wss://", httpUrl.AsSpan("https://".Length))
+            : string.Concat("ws://", httpUrl.AsSpan("http://".Length));
+    }
+
+    // RavenDB's live "watch" feeds (admin logs, cluster dashboard) are WebSocket endpoints, not
+    // plain GETs. Connect, collect frames for the sample window (or until the size cap), report
+    // truncation. Mirrors GetServerTextSample's bounds and TextSample shape.
+    private async Task<TextSample> GetServerWebSocketSample(
+        string path,
+        int seconds,
+        CancellationToken cancellationToken,
+        params (string Name, string? Value)[] query)
+    {
+        var sampleSeconds = Math.Clamp(seconds, 1, 30);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(sampleSeconds));
+
+        var url = ToWebSocketUrl(BuildServerUrl(path, query));
+        using var socket = new ClientWebSocket();
+        if (clientCertificate is not null)
+            socket.Options.ClientCertificates.Add(clientCertificate);
+
+        var result = new StringBuilder();
+        var truncated = false;
+        var buffer = new byte[8192];
+
+        try
+        {
+            await socket.ConnectAsync(new Uri(url), timeout.Token);
+
+            while (!timeout.Token.IsCancellationRequested && socket.State == WebSocketState.Open)
+            {
+                if (result.Length >= SampleCharLimit)
+                {
+                    truncated = true;
+                    break;
+                }
+
+                var received = await socket.ReceiveAsync(buffer, timeout.Token);
+                if (received.MessageType == WebSocketMessageType.Close)
+                    break;
+
+                result.Append(Encoding.UTF8.GetString(buffer, 0, received.Count));
+            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+        }
+        catch (WebSocketException)
+        {
+            // Connection closed/aborted mid-sample; return whatever we collected.
+        }
+        finally
+        {
+            socket.Abort();
+        }
+
+        return new TextSample(result.ToString(), truncated, SampleCharLimit);
     }
 
     private string BuildServerUrl(

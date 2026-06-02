@@ -109,4 +109,7 @@ jobs:
 
       - name: Test secured
         if: matrix.security == 'secured'
-        run: dotnet test RavenDB.Mcp.slnx --configuration Release --filter "FullyQualifiedName~SecuredRavenDbConnectionTests|FullyQualifiedName~McpToolContractTests|FullyQualifiedName~RawHttpDiagnosticsTests|FullyQualifiedName~DocumentStoreFactoryTests|FullyQualifiedName~RavenDbOptionsValidatorTests"
+        # Run the FULL suite against the certificate-secured server. RavenDbTestFixture picks up
+        # RAVENDB_SECURE_TEST_URL + the operator certificate, so the live-server, E2E, and raw
+        # HTTPS route tests all exercise the secured (mutual-TLS) path.
+        run: dotnet test RavenDB.Mcp.slnx --configuration Release

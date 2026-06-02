@@ -13,6 +13,10 @@ using RavenDB.Mcp.RavenDB;
 var configPath = GetConfigPath(args);
 var builder = Host.CreateApplicationBuilder(args);
 
+// Friendly RAVENDB_* environment variables (the inputs declared in .mcp/server.json) map onto
+// RavenDbOptions. Added before --config so an explicit --config file overrides env values.
+builder.Configuration.AddInMemoryCollection(MapRavenEnvironment());
+
 if (configPath is not null)
     builder.Configuration.AddJsonFile(Path.GetFullPath(configPath), optional: false, reloadOnChange: false);
 
@@ -53,6 +57,29 @@ builder.Services
     .WithToolsFromAssembly();
 
 await builder.Build().RunAsync();
+
+static IEnumerable<KeyValuePair<string, string?>> MapRavenEnvironment()
+{
+    var urls = Environment.GetEnvironmentVariable("RAVENDB_URLS");
+    if (!string.IsNullOrWhiteSpace(urls))
+    {
+        var parts = urls.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        for (var i = 0; i < parts.Length; i++)
+            yield return new KeyValuePair<string, string?>($"Urls:{i}", parts[i]);
+    }
+
+    var certificatePath = Environment.GetEnvironmentVariable("RAVENDB_CERTIFICATE_PATH");
+    if (!string.IsNullOrWhiteSpace(certificatePath))
+        yield return new KeyValuePair<string, string?>("CertificatePath", certificatePath);
+
+    var certificatePassword = Environment.GetEnvironmentVariable("RAVENDB_CERTIFICATE_PASSWORD");
+    if (!string.IsNullOrWhiteSpace(certificatePassword))
+        yield return new KeyValuePair<string, string?>("CertificatePassword", certificatePassword);
+
+    var artifactsPath = Environment.GetEnvironmentVariable("RAVENDB_ARTIFACTS_PATH");
+    if (!string.IsNullOrWhiteSpace(artifactsPath))
+        yield return new KeyValuePair<string, string?>("ArtifactsPath", artifactsPath);
+}
 
 static string? GetConfigPath(string[] args)
 {

@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Text.Json;
 using ModelContextProtocol.Server;
 using RavenDB.Mcp.RavenDB;
@@ -8,6 +9,7 @@ namespace RavenDB.Mcp.Tools;
 public static class DatabaseTools
 {
     [McpServerTool(Name = "list_databases", ReadOnly = true, UseStructuredContent = true)]
+    [Description("List all database names in the cluster. Call first to discover targets.")]
     public static Task<ListDatabasesResult> ListDatabases(
         RavenDbAdminClient client,
         CancellationToken cancellationToken)
@@ -16,6 +18,7 @@ public static class DatabaseTools
     }
 
     [McpServerTool(Name = "get_database_record", ReadOnly = true, UseStructuredContent = true)]
+    [Description("Full database record: topology, ongoing tasks (backup/replication/ETL/subscriptions), settings, and feature configuration.")]
     public static Task<GetDatabaseRecordResult> GetDatabaseRecord(
         RavenDbAdminClient client,
         string databaseName,
@@ -25,6 +28,7 @@ public static class DatabaseTools
     }
 
     [McpServerTool(Name = "get_collection_overview", ReadOnly = true, UseStructuredContent = true)]
+    [Description("Collection statistics for a database: per-collection document counts plus detailed size/document totals.")]
     public static Task<GetCollectionOverviewResult> GetCollectionOverview(
         RavenDbAdminClient client,
         string databaseName,
@@ -34,6 +38,7 @@ public static class DatabaseTools
     }
 
     [McpServerTool(Name = "get_database_overview", ReadOnly = true, UseStructuredContent = true)]
+    [Description("One-call health snapshot for a database: stats, detailed stats, indexing status, index stats, index errors, and ongoing tasks.")]
     public static Task<GetDatabaseOverviewResult> GetDatabaseOverview(
         RavenDbAdminClient client,
         string databaseName,
@@ -43,6 +48,7 @@ public static class DatabaseTools
     }
 
     [McpServerTool(Name = "get_database_configuration", ReadOnly = true, UseStructuredContent = true)]
+    [Description("Effective database settings (the configuration keys/values RavenDB applies to this database).")]
     public static Task<GetDatabaseConfigurationResult> GetDatabaseConfiguration(
         RavenDbAdminClient client,
         string databaseName,
@@ -52,6 +58,7 @@ public static class DatabaseTools
     }
 
     [McpServerTool(Name = "get_client_configuration", ReadOnly = true, UseStructuredContent = true)]
+    [Description("Per-database client configuration RavenDB pushes to clients: read balance, load-balancing behavior, max requests per session.")]
     public static Task<GetClientConfigurationResult> GetClientConfiguration(
         RavenDbAdminClient client,
         string databaseName,
@@ -83,14 +90,6 @@ public sealed record GetDatabaseOverviewResult(
     string DatabaseName,
     JsonElement Stats,
     JsonElement DetailedStats,
-    JsonElement IndexingStatus,
-    JsonElement IndexStats,
-    JsonElement IndexErrors,
-    JsonElement Tasks);
-
-public sealed record GetDatabaseHealthSummaryResult(
-    string DatabaseName,
-    JsonElement Stats,
     JsonElement IndexingStatus,
     JsonElement IndexStats,
     JsonElement IndexErrors,

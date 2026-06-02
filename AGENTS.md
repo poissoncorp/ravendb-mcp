@@ -1,33 +1,17 @@
-# Project Scope Defaults
+# RavenDB MCP — Agent Orientation
 
-This project is a RavenDB MCP diagnostics server. The v1 goal is deliberately small: a local external C# MCP server that connects to RavenDB through configured URL/certificate settings and exposes read-only diagnostic tools over stdio.
+## What this is
 
-The project source of truth is the PRD and ADRs under `docs/`. Other planning notes or older docs may be stale; check them only as context, not as binding requirements.
+A local, external **read-only MCP diagnostics server for RavenDB**, written in C# (.NET 10) and spoken over **stdio**. It connects to one RavenDB cluster via configured URL(s) and an optional client certificate, and exposes read-only tools so an AI agent can assess cluster/database/index/task/storage/performance state and (read-only) data without hand-crafting REST calls.
 
-The code should be demo-shallow and professional: direct enough to show the mechanism clearly, but not throwaway. Prefer the RavenDB Client API and MCP SDK surface as they are. Do not add architecture, policy, or future-proofing unless the current feature needs it.
+- Transport is stdio, so all logs go to **stderr** — never write to stdout.
+- The server targets **one cluster**; list that cluster's node URLs in configuration.
+- v1 is **read-only**: no write/delete tools. Read-only document/query access is allowed under ADR-0009; everything else is metadata/diagnostics.
 
-## Coding Defaults
+## Rules for the agent working in this repo
 
-- No fake generality. If v1 does not genuinely need config sections, password environment indirection, paging abstractions, custom sorting, counts, wrappers, or fallback shapes, do not add them.
-- Do not invent product policy in plumbing code. A tool should report what RavenDB returns unless there is an explicit product reason to reshape it.
-- Prefer real domain objects unless there is a concrete reason not to. Do not serialize RavenDB objects into generic JSON just because it feels safer.
-- Names should carry the meaning. Add descriptions or comments only when the name is ambiguous, risky, or non-obvious.
-- Test-specific things should look test-specific. Use clear test-runner variables such as `RAVENDB_TEST_URL` instead of leaking framework binding syntax into CI.
-- Avoid ceremony that exists only to make code look architectural. Constants, validators, result fields, helper classes, and abstractions must earn their place.
-- Do not silently hide limits. If a tool has paging, truncation, redaction, or filtering, make that an explicit tool/API decision.
-- Keep v1 honest. Prove the MCP/RavenDB path first; do not solve future production UX, fleet scale, config ergonomics, or advanced security in passing.
-- Make failure explicit at the boundary. A clear setup error is better than a hidden fallback that changes behavior depending on the machine.
-- Use framework mechanics where they protect the actual protocol or runtime. For example, stdio MCP must keep logs off stdout, so console logs should go to stderr.
-- Every line should answer: what current problem does this solve? If the answer is only "maybe later", cut it or move the thought to docs.
-
-## MCP Tool Contract Defaults
-
-- Tool schemas are agent-facing API contracts. Keep them small, stable, and readable in `tools/list`.
-- Treat schema size and result size as context-window costs. Large contracts and large payloads reduce how much useful diagnostic state the agent can keep.
-- Use precise records for stable summaries and normal diagnostic results.
-- Do not expose large RavenDB Client object graphs as fully expanded MCP schemas.
-- For raw RavenDB payloads, prefer a permissive JSON field such as `JsonElement` over copying the whole RavenDB type into our own contract.
-- If a RavenDB Client type does not serialize usefully through the MCP/System.Text.Json path, fix it at the narrow tool-result boundary. Do not change global serializer behavior for one tool.
-- Split summary and raw detail when the raw shape is large or unstable.
-- Large artifacts such as logs, debug packages, dumps, traces, and long query results should move through resource links or files when that feature exists, not giant tool schemas.
-- Keep `tools/list` metadata lean: snake_case names, read-only annotations, structured output schemas, and descriptions only when a name is genuinely unclear.
+- The source of truth for decisions is the PRD and ADRs under `docs/` (local/gitignored). Check them before changing scope, the tool surface, error semantics, data exposure, or distribution. Other notes under `docs/` may be stale — prefer the ADRs.
+- Keep the tool surface and result schemas small: they are agent-facing API contracts and a context-window cost. Prefer permissive `JsonElement` payloads described in each tool's `[Description]` over fully-expanded schemas.
+- Every tool is read-only and carries a dual-use description (when to use it + what it returns).
+- Make failure explicit at the boundary; do not add hidden fallbacks, fake generality, or future-proofing the current feature does not need.
+- Detailed coding/contract conventions and the ratified error/distribution/long-result decisions live in `docs/engineering-guidelines.md` and `docs/adr/`.

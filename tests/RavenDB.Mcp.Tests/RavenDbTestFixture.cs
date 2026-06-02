@@ -16,14 +16,33 @@ public sealed class RavenDbTestFixture : IAsyncLifetime
 
     public string IndexFieldName { get; } = "Name";
 
-    public string Url { get; } = Environment.GetEnvironmentVariable("RAVENDB_TEST_URL")
-        ?? throw new InvalidOperationException("RAVENDB_TEST_URL must be set for RavenDB-backed tests.");
+    // Prefer the secured endpoint when CI configured it, so the full suite (including the raw
+    // HTTPS diagnostic routes) runs against a certificate-secured server; otherwise unsecured.
+    public string Url { get; } =
+        Environment.GetEnvironmentVariable("RAVENDB_SECURE_TEST_URL")
+        ?? Environment.GetEnvironmentVariable("RAVENDB_TEST_URL")
+        ?? throw new InvalidOperationException("RAVENDB_TEST_URL (or RAVENDB_SECURE_TEST_URL) must be set for RavenDB-backed tests.");
+
+    public RavenDbOptions Options { get; } = new()
+    {
+        Urls = [
+            Environment.GetEnvironmentVariable("RAVENDB_SECURE_TEST_URL")
+            ?? Environment.GetEnvironmentVariable("RAVENDB_TEST_URL")
+            ?? "http://127.0.0.1:8070/"
+        ],
+        CertificatePath = Environment.GetEnvironmentVariable("RAVENDB_SECURE_TEST_URL") is null
+            ? null
+            : Environment.GetEnvironmentVariable("RAVENDB_SECURE_OPERATOR_CERTIFICATE_PATH"),
+        CertificatePassword = Environment.GetEnvironmentVariable("RAVENDB_SECURE_TEST_URL") is null
+            ? null
+            : Environment.GetEnvironmentVariable("RAVENDB_SECURE_OPERATOR_CERTIFICATE_PASSWORD")
+    };
 
     public IDocumentStore Store { get; private set; } = null!;
 
     public async Task InitializeAsync()
     {
-        Store = DocumentStoreFactory.Create(new RavenDbOptions { Urls = [Url] });
+        Store = DocumentStoreFactory.Create(Options);
 
         await Store.Maintenance.Server.SendAsync(
             new CreateDatabaseOperation(new DatabaseRecord(DatabaseName)));

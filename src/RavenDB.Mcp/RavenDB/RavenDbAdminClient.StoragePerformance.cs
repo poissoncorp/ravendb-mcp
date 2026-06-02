@@ -101,17 +101,19 @@ public sealed partial class RavenDbAdminClient
         string? environmentType,
         CancellationToken cancellationToken)
     {
-        var report = await GetStorageEnvironmentReport(databaseName, environmentName, environmentType, cancellationToken);
-        var scratchBuffers = await GetStorageScratchBufferInfo(databaseName, environmentName, environmentType, cancellationToken);
-        var freeSpace = await GetStorageFreeSpaceSnapshot(databaseName, environmentName, environmentType, cancellationToken);
+        var reportTask = GetStorageEnvironmentReport(databaseName, environmentName, environmentType, cancellationToken);
+        var scratchBuffersTask = GetStorageScratchBufferInfo(databaseName, environmentName, environmentType, cancellationToken);
+        var freeSpaceTask = GetStorageFreeSpaceSnapshot(databaseName, environmentName, environmentType, cancellationToken);
+        await Task.WhenAll(reportTask, scratchBuffersTask, freeSpaceTask);
 
+        var report = await reportTask;
         return new GetStorageEnvironmentDetailsResult(
             databaseName,
             report.EnvironmentName,
             report.EnvironmentType,
             report.Report,
-            scratchBuffers.ScratchBuffers,
-            freeSpace.FreeSpace);
+            (await scratchBuffersTask).ScratchBuffers,
+            (await freeSpaceTask).FreeSpace);
     }
 
     public async Task<GetStorageFreeSpaceSnapshotResult> GetStorageFreeSpaceSnapshot(
@@ -142,16 +144,28 @@ public sealed partial class RavenDbAdminClient
 
     public async Task<GetServerResourcesResult> GetServerResources(CancellationToken cancellationToken)
     {
-        var memory = await GetOsMemoryStats(cancellationToken);
+        var metricsTask = GetPerformanceOverview(cancellationToken);
+        var cpuTask = GetCpuStats(cancellationToken);
+        var ioTask = GetIoStats(null, cancellationToken);
+        var gcTask = GetGcMemoryStats(cancellationToken);
+        var memoryTask = GetOsMemoryStats(cancellationToken);
+        var processTask = GetProcessStats(cancellationToken);
+
+        await Task.WhenAll(metricsTask, cpuTask, ioTask, gcTask, memoryTask, processTask);
+
+        var memory = (await memoryTask).Memory;
+        var threads = memory.TryGetProperty("Threads", out var threadsValue)
+            ? threadsValue.Clone()
+            : ToJson(new { available = false, reason = "Threads not present in memory stats." });
 
         return new GetServerResourcesResult(
-            (await GetPerformanceOverview(cancellationToken)).Metrics,
-            (await GetCpuStats(cancellationToken)).Cpu,
-            (await GetIoStats(null, cancellationToken)).Io,
-            (await GetGcMemoryStats(cancellationToken)).Gc,
-            memory.Memory,
-            (await GetProcessStats(cancellationToken)).Process,
-            memory.Memory.GetProperty("Threads").Clone());
+            (await metricsTask).Metrics,
+            (await cpuTask).Cpu,
+            (await ioTask).Io,
+            (await gcTask).Gc,
+            memory,
+            (await processTask).Process,
+            threads);
     }
 
     public async Task<GetCpuStatsResult> GetCpuStats(CancellationToken cancellationToken)
@@ -203,16 +217,13 @@ public sealed partial class RavenDbAdminClient
             ? "/admin/debug/memory/gc-events"
             : "/admin/debug/memory/allocations";
 
+        var sample = await GetServerTextSample(path, seconds, cancellationToken);
         return new SampleRuntimeEventsResult(
             kind,
             Math.Clamp(seconds, 1, 30),
-            await GetServerTextSample(path, seconds, cancellationToken));
-    }
-
-    public async Task<GetThreadStatsResult> GetThreadStats(CancellationToken cancellationToken)
-    {
-        var stats = await GetServerJson("/admin/debug/memory/stats", cancellationToken);
-        return new GetThreadStatsResult(stats.GetProperty("Threads").Clone());
+            sample.Text,
+            sample.Truncated,
+            sample.Limit);
     }
 
     public async Task<SampleThreadDiagnosticsResult> SampleThreadDiagnostics(
@@ -225,12 +236,15 @@ public sealed partial class RavenDbAdminClient
             : "/admin/debug/threads/runaway";
 
         if (path.EndsWith("/runaway", StringComparison.Ordinal))
-            return new SampleThreadDiagnosticsResult(kind, 0, await GetServerText(path, cancellationToken));
+            return new SampleThreadDiagnosticsResult(kind, 0, await GetServerText(path, cancellationToken), false, 0);
 
+        var sample = await GetServerTextSample(path, seconds, cancellationToken);
         return new SampleThreadDiagnosticsResult(
             kind,
             Math.Clamp(seconds, 1, 30),
-            await GetServerTextSample(path, seconds, cancellationToken));
+            sample.Text,
+            sample.Truncated,
+            sample.Limit);
     }
 
     public async Task<GetStackTracesResult> GetStackTraces(CancellationToken cancellationToken)

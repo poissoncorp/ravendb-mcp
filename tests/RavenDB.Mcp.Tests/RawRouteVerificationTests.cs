@@ -1,4 +1,6 @@
+using System.Net.Http;
 using System.Text.Json;
+using RavenDB.Mcp.RavenDB;
 
 namespace RavenDB.Mcp.Tests;
 
@@ -104,7 +106,12 @@ public sealed class RawRouteVerificationTests(RavenDbTestFixture fixture)
     [Fact]
     public async Task RawRoutesUsedByToolsExistInRavenDb72()
     {
-        using var http = new HttpClient();
+        using var handler = new HttpClientHandler();
+        var certificate = DocumentStoreFactory.LoadCertificate(fixture.Options);
+        if (certificate is not null)
+            handler.ClientCertificates.Add(certificate);
+
+        using var http = new HttpClient(handler);
         await using var stream = await http.GetStreamAsync(new Uri(new Uri(fixture.Url), "/debug/routes"));
         using var document = await JsonDocument.ParseAsync(stream);
 

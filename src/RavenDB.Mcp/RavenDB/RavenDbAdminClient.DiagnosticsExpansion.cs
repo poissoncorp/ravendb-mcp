@@ -119,14 +119,6 @@ public sealed partial class RavenDbAdminClient
         return new DiagnosticArtifactResult(path, content.ContentType, content.Bytes.LongLength);
     }
 
-    private static bool LooksComplete(JsonElement state)
-    {
-        var raw = state.GetRawText();
-        return raw.Contains("\"Completed\":true", StringComparison.OrdinalIgnoreCase)
-            || raw.Contains("\"Status\":\"Completed\"", StringComparison.OrdinalIgnoreCase)
-            || raw.Contains("\"State\":\"Completed\"", StringComparison.OrdinalIgnoreCase);
-    }
-
     private static string SanitizeFileName(string value)
     {
         var invalid = Path.GetInvalidFileNameChars();

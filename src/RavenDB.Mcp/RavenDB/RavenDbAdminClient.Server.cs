@@ -4,7 +4,6 @@ using Raven.Client.ServerWide.Operations;
 using Raven.Client.ServerWide.Operations.Configuration;
 using Raven.Client.ServerWide.Operations.Logs;
 using Raven.Client.Http;
-using RavenDB.Mcp.Configuration;
 using RavenDB.Mcp.Tools;
 
 namespace RavenDB.Mcp.RavenDB;
@@ -26,12 +25,6 @@ public sealed partial class RavenDbAdminClient
             ToJson(nodeInfo));
     }
 
-    public async Task<GetClusterTopologyResult> GetClusterTopology(CancellationToken cancellationToken)
-    {
-        var topology = await ExecuteServerCommand(new GetClusterTopologyCommand(), cancellationToken);
-        return new GetClusterTopologyResult(ToJson(topology));
-    }
-
     public async Task<GetClusterNodesResult> GetClusterNodes(CancellationToken cancellationToken)
     {
         var server = await store.Maintenance.Server.SendAsync(
@@ -40,18 +33,34 @@ public sealed partial class RavenDbAdminClient
         var currentNode = await ExecuteServerCommand(new GetNodeInfoCommand(), cancellationToken);
         var topology = await ExecuteServerCommand(new GetClusterTopologyCommand(), cancellationToken);
 
+        var serverBuild = ToServerBuild(server);
+        var self = ToCurrentNode(currentNode);
+
         var nodes = new List<ClusterNodeResult>();
 
         foreach (var (tag, url) in topology.Topology.AllNodes.OrderBy(node => node.Key, StringComparer.OrdinalIgnoreCase))
         {
             NodeStatus? status = null;
             topology.Status?.TryGetValue(tag, out status);
-            nodes.Add(await GetClusterNode(tag, GetNodeType(tag, topology), url, status, cancellationToken));
+
+            // Build/self info is only populated for the contacted node. Probing every node
+            // would require a DocumentStore per URL; the server targets one cluster, and
+            // per-node reachability is covered by topology Status and ping_cluster_node.
+            var isContacted = string.Equals(tag, currentNode.NodeTag, StringComparison.OrdinalIgnoreCase);
+
+            nodes.Add(new ClusterNodeResult(
+                tag,
+                GetNodeType(tag, topology),
+                url,
+                status is null ? null : ToClusterNodeStatus(status),
+                isContacted ? serverBuild : null,
+                isContacted ? self : null,
+                null));
         }
 
         return new GetClusterNodesResult(
-            ToServerBuild(server),
-            ToCurrentNode(currentNode),
+            serverBuild,
+            self,
             new ClusterResult(
                 topology.Topology.TopologyId,
                 topology.Topology.Etag,
@@ -78,48 +87,6 @@ public sealed partial class RavenDbAdminClient
             cancellationToken);
 
         return new GetServerWideClientConfigurationResult(ToJson(configuration));
-    }
-
-    private async Task<ClusterNodeResult> GetClusterNode(
-        string tag,
-        string type,
-        string url,
-        NodeStatus? status,
-        CancellationToken cancellationToken)
-    {
-        try
-        {
-            using var nodeStore = DocumentStoreFactory.Create(NodeOptions(url));
-            var build = await nodeStore.Maintenance.Server.SendAsync(new GetBuildNumberOperation(), cancellationToken);
-            var self = await ExecuteServerCommand(nodeStore, new GetNodeInfoCommand(), cancellationToken);
-
-            return new ClusterNodeResult(
-                tag,
-                type,
-                url,
-                status is null ? null : ToClusterNodeStatus(status),
-                ToServerBuild(build),
-                ToCurrentNode(self),
-                null);
-        }
-        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
-        {
-            return new ClusterNodeResult(
-                tag,
-                type,
-                url,
-                status is null ? null : ToClusterNodeStatus(status),
-                null,
-                null,
-                exception.Message);
-        }
-    }
-
-    private RavenDbOptions NodeOptions(string url)
-    {
-        return configuredOptions is null
-            ? new RavenDbOptions { Urls = [url] }
-            : configuredOptions with { Urls = [url] };
     }
 
     private static string GetNodeType(string tag, ClusterTopologyResponse topology)

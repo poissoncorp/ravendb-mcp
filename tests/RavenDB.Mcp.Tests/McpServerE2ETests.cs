@@ -11,7 +11,7 @@ public sealed class McpServerE2ETests(RavenDbTestFixture fixture)
     public async Task ExposesAndCallsV1ToolsOverStdio()
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-        await using var client = McpStdioClient.Start(fixture.Url);
+        await using var client = McpStdioClient.Start(fixture.Options);
 
         await client.Initialize(timeout.Token);
 
@@ -249,7 +249,7 @@ public sealed class McpServerE2ETests(RavenDbTestFixture fixture)
         {
             await File.WriteAllTextAsync(
                 configPath,
-                JsonSerializer.Serialize(new RavenDbOptions { Urls = [fixture.Url] }),
+                JsonSerializer.Serialize(fixture.Options),
                 timeout.Token);
 
             await using var client = McpStdioClient.StartWithConfigFile(configPath);

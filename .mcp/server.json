@@ -1,0 +1,44 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-10-17/server.schema.json",
+  "name": "io.github.poissoncorp/ravendb-mcp",
+  "description": "Read-only MCP diagnostics server for RavenDB.",
+  "version": "0.1.0",
+  "repository": {
+    "url": "https://github.com/poissoncorp/ravendb-mcp",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "nuget",
+      "registryBaseUrl": "https://api.nuget.org",
+      "identifier": "RavenDB.Mcp",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "RAVENDB_URLS",
+          "description": "Comma-separated RavenDB node URLs of a single cluster, e.g. https://a.example:443,https://b.example:443",
+          "isRequired": true
+        },
+        {
+          "name": "RAVENDB_CERTIFICATE_PATH",
+          "description": "Path to a client .pfx certificate for secured RavenDB. Leave empty for unsecured.",
+          "isRequired": false
+        },
+        {
+          "name": "RAVENDB_CERTIFICATE_PASSWORD",
+          "description": "Password for the client .pfx certificate.",
+          "isRequired": false,
+          "isSecret": true
+        },
+        {
+          "name": "RAVENDB_ARTIFACTS_PATH",
+          "description": "Directory where exported artifacts (logs, packages, dumps) are written.",
+          "isRequired": false
+        }
+      ]
+    }
+  ]
+}
