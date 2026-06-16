@@ -53,6 +53,21 @@ public sealed partial class RavenDbAdminClient
         }
     }
 
+    // Availability wrapper for typed Client-API reads (mirrors TryGet*): surfaces a clean
+    // { available:false, error } envelope when a licensed/optional feature isn't enabled, instead
+    // of throwing through the tool.
+    private async Task<JsonElement> TryReadJson<T>(Func<Task<T>> read, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return ToJson(new { available = true, value = await read() });
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            return ToJson(new { available = false, error = exception.Message });
+        }
+    }
+
     private async Task<JsonElement> PostDatabaseJson(
         string databaseName,
         string path,
