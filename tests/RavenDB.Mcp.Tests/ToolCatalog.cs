@@ -9,6 +9,7 @@ internal static class ToolCatalog
         "export_document_ids",
         "export_logs",
         "find_missing_attachments",
+        "get_ai_agents",
         "get_cluster_overview",
         "get_collection_sample_shape",
         "get_database_config",
