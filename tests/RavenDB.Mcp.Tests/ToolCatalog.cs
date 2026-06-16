@@ -7,7 +7,7 @@ internal static class ToolCatalog
         "collect_debug_package",
         "collect_diagnostic_snapshot",
         "export_document_ids",
-        "export_logs",
+        "export_server_logs",
         "find_missing_attachments",
         "get_ai_agents",
         "get_cluster_overview",

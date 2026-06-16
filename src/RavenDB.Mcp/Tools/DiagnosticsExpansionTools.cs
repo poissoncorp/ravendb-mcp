@@ -49,9 +49,9 @@ public static class DiagnosticsExpansionTools
         };
     }
 
-    [McpServerTool(Name = "export_logs", ReadOnly = true, UseStructuredContent = true)]
-    [Description("Download server logs for an optional time range to a local artifact file. Returns the artifact path, content type, and byte size (not the log contents inline).")]
-    public static Task<DiagnosticArtifactResult> ExportLogs(
+    [McpServerTool(Name = "export_server_logs", ReadOnly = true, UseStructuredContent = true)]
+    [Description("Download the operational server logs (the regular runtime log stream, not the audit log) for an optional time range to a local artifact file. Returns the artifact path, content type, and byte size — not the log contents inline.")]
+    public static Task<DiagnosticArtifactResult> ExportServerLogs(
         RavenDbAdminClient client,
         DateTime? from,
         DateTime? to,
