@@ -140,23 +140,31 @@ public static class StoragePerformanceTools
         return client.GetScriptRunners(databaseName, cancellationToken);
     }
 
-    [McpServerTool(Name = "get_tcp_stats", ReadOnly = true)]
-    [Description("Server TCP statistics: connection counts and bytes in/out across the server's TCP endpoints.")]
-    public static Task<GetTcpStatsResult> GetTcpStats(
+    [McpServerTool(Name = "get_network_details", ReadOnly = true)]
+    [Description("TCP/network details: Stats (server connection counts + bytes), Connections (active TCP connections — server-wide, or per database when databaseName is given), DatabaseInfo (endpoint a client/node uses to reach a database on a node — needs databaseName + nodeTag). Choose sections with include; default is Stats + Connections.")]
+    public static async Task<Dictionary<string, object?>> GetNetworkDetails(
         RavenDbAdminClient client,
+        [Description("Sections to return; omit for Stats + Connections.")] NetworkFacet[]? include,
+        [Description("Database to scope Connections to, or required for DatabaseInfo. Omit for server-wide.")] string? databaseName,
+        [Description("Node tag — required for DatabaseInfo (e.g. 'A').")] string? nodeTag,
         CancellationToken cancellationToken)
     {
-        return client.GetTcpStats(cancellationToken);
-    }
+        var sections = Facet.Resolve(include, NetworkFacet.Stats, NetworkFacet.Connections);
+        var result = new Dictionary<string, object?>();
 
-    [McpServerTool(Name = "list_tcp_connections", ReadOnly = true)]
-    [Description("Active TCP connections. Omit databaseName for server-wide active connections; pass it for that database's TCP connection info.")]
-    public static Task<ListTcpConnectionsResult> ListTcpConnections(
-        RavenDbAdminClient client,
-        string? databaseName,
-        CancellationToken cancellationToken)
-    {
-        return client.ListTcpConnections(databaseName, cancellationToken);
+        if (sections.Contains(NetworkFacet.Stats))
+            result["stats"] = await client.GetTcpStats(cancellationToken);
+
+        if (sections.Contains(NetworkFacet.Connections))
+            result["connections"] = await client.ListTcpConnections(databaseName, cancellationToken);
+
+        if (sections.Contains(NetworkFacet.DatabaseInfo))
+            result["databaseInfo"] = await client.GetDatabaseTcpInfo(
+                Facet.RequireDatabase(databaseName, "DatabaseInfo"),
+                Facet.Require(nodeTag, "nodeTag", "DatabaseInfo"),
+                cancellationToken);
+
+        return result;
     }
 }
 

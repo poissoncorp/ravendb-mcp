@@ -27,6 +27,19 @@ public enum WorkloadInclude
     Transactions
 }
 
+/// <summary>What <c>get_network_details</c> returns.</summary>
+public enum NetworkFacet
+{
+    /// <summary>Server TCP statistics (connection counts, bytes in/out).</summary>
+    Stats,
+
+    /// <summary>Active TCP connections (server-wide, or per database).</summary>
+    Connections,
+
+    /// <summary>TCP endpoint info to reach a database on a node (needs databaseName + nodeTag).</summary>
+    DatabaseInfo
+}
+
 /// <summary>Shared helpers for parameterized facet tools.</summary>
 internal static class Facet
 {
@@ -34,9 +47,13 @@ internal static class Facet
     public static HashSet<T> Resolve<T>(T[]? requested, params T[] defaults) where T : struct, Enum
         => new(requested is { Length: > 0 } ? requested : defaults);
 
+    /// <summary>Guard a required argument for a facet section.</summary>
+    public static string Require(string? value, string argName, string forSection)
+        => string.IsNullOrWhiteSpace(value)
+            ? throw new ArgumentException($"{argName} is required for the '{forSection}' section.", argName)
+            : value;
+
     /// <summary>Guard a facet that requires a database name.</summary>
     public static string RequireDatabase(string? databaseName, string forSection)
-        => string.IsNullOrWhiteSpace(databaseName)
-            ? throw new ArgumentException($"databaseName is required for the '{forSection}' section.", nameof(databaseName))
-            : databaseName;
+        => Require(databaseName, "databaseName", forSection);
 }

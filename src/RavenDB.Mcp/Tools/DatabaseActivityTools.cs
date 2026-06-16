@@ -29,17 +29,6 @@ public static class DatabaseActivityTools
         return client.GetSubscriptionState(databaseName, subscriptionName, cancellationToken);
     }
 
-    [McpServerTool(Name = "get_database_tcp_info", ReadOnly = true)]
-    [Description("TCP connection info a client/node would use to reach this database on a given node tag (URLs, port, certificate requirement).")]
-    public static Task<GetDatabaseTcpInfoResult> GetDatabaseTcpInfo(
-        RavenDbAdminClient client,
-        string databaseName,
-        string nodeTag,
-        CancellationToken cancellationToken)
-    {
-        return client.GetDatabaseTcpInfo(databaseName, nodeTag, cancellationToken);
-    }
-
     [McpServerTool(Name = "get_identities", ReadOnly = true)]
     [Description("Identity counters for a database (the server-side sequence values behind identity document ids).")]
     public static Task<GetIdentitiesResult> GetIdentities(
