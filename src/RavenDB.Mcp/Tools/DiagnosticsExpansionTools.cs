@@ -100,15 +100,6 @@ public static class DiagnosticsExpansionTools
         return client.GetSubscriptionDiagnostics(databaseName, cancellationToken);
     }
 
-    [McpServerTool(Name = "get_traffic_watch_configuration", ReadOnly = true)]
-    [Description("Current traffic-watch configuration: capture mode, filtered databases, and HTTP/TCP change types being recorded.")]
-    public static Task<GetTrafficWatchConfigurationResult> GetTrafficWatchConfiguration(
-        RavenDbAdminClient client,
-        CancellationToken cancellationToken)
-    {
-        return client.GetTrafficWatchConfiguration(cancellationToken);
-    }
-
     [McpServerTool(Name = "export_logs", ReadOnly = true, UseStructuredContent = true)]
     [Description("Download server logs for an optional time range to a local artifact file. Returns the artifact path, content type, and byte size (not the log contents inline).")]
     public static Task<DiagnosticArtifactResult> ExportLogs(

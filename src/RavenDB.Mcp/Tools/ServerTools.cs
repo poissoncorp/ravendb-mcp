@@ -27,22 +27,24 @@ public static class ServerTools
         return result;
     }
 
-    [McpServerTool(Name = "get_logs_configuration", ReadOnly = true)]
-    [Description("Current server logging configuration: log mode/levels, paths, and retention settings.")]
-    public static Task<GetLogsConfigurationToolResult> GetLogsConfiguration(
+    [McpServerTool(Name = "get_server_config", ReadOnly = true)]
+    [Description("Server-scoped configuration. Sections: Logs (mode/levels/paths/retention), ClientConfig (server-wide client config pushed to all clients), TrafficWatch (capture configuration), Studio (environment banner, disabled UI features). Choose with include; default is all. For per-database configuration use get_database_config.")]
+    public static async Task<Dictionary<string, object?>> GetServerConfig(
         RavenDbAdminClient client,
+        [Description("Sections to return; omit for all.")] ServerConfigSection[]? include,
         CancellationToken cancellationToken)
     {
-        return client.GetLogsConfiguration(cancellationToken);
-    }
+        var sections = Facet.Resolve(include,
+            ServerConfigSection.Logs, ServerConfigSection.ClientConfig,
+            ServerConfigSection.TrafficWatch, ServerConfigSection.Studio);
+        var result = new Dictionary<string, object?>();
 
-    [McpServerTool(Name = "get_server_wide_client_configuration", ReadOnly = true)]
-    [Description("Server-wide client configuration RavenDB pushes to all clients: read balance, load-balancing, and max requests per session.")]
-    public static Task<GetServerWideClientConfigurationResult> GetServerWideClientConfiguration(
-        RavenDbAdminClient client,
-        CancellationToken cancellationToken)
-    {
-        return client.GetServerWideClientConfiguration(cancellationToken);
+        if (sections.Contains(ServerConfigSection.Logs)) result["logs"] = await client.GetLogsConfiguration(cancellationToken);
+        if (sections.Contains(ServerConfigSection.ClientConfig)) result["clientConfig"] = await client.GetServerWideClientConfiguration(cancellationToken);
+        if (sections.Contains(ServerConfigSection.TrafficWatch)) result["trafficWatch"] = await client.GetTrafficWatchConfiguration(cancellationToken);
+        if (sections.Contains(ServerConfigSection.Studio)) result["studio"] = await client.GetServerStudioConfiguration(cancellationToken);
+
+        return result;
     }
 }
 

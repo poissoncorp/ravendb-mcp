@@ -55,6 +55,22 @@ public enum ResourceInclude
     ScriptRunners
 }
 
+/// <summary>Server-scoped configuration sections returned by <c>get_server_config</c>.</summary>
+public enum ServerConfigSection
+{
+    /// <summary>Log mode/levels, paths, retention.</summary>
+    Logs,
+
+    /// <summary>Server-wide client configuration (read balance, load balancing, max requests).</summary>
+    ClientConfig,
+
+    /// <summary>Traffic-watch capture configuration.</summary>
+    TrafficWatch,
+
+    /// <summary>Studio configuration (environment banner, disabled UI features).</summary>
+    Studio
+}
+
 /// <summary>Sections returned by <c>get_cluster_overview</c>.</summary>
 public enum ClusterInclude
 {

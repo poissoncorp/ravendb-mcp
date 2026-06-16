@@ -244,6 +244,11 @@ public sealed partial class RavenDbAdminClient
             await GetServerJson("/admin/traffic-watch/configuration", cancellationToken));
     }
 
+    public Task<JsonElement> GetServerStudioConfiguration(CancellationToken cancellationToken)
+    {
+        return GetServerJson("/configuration/studio", cancellationToken);
+    }
+
     public Task<DiagnosticArtifactResult> ExportLogs(
         DateTime? from,
         DateTime? to,
