@@ -2,9 +2,8 @@ using RavenDB.Mcp.Tools;
 
 namespace RavenDB.Mcp.Tests;
 
-// The shared invariant every include[]-style facet tool relies on: Facet.Resolve picks the supplied
-// defaults when nothing is requested (null OR empty array) and otherwise honours the request, deduped.
-// Previously proven only in the external JS exerciser — pulled into dotnet test / CI here.
+// The invariant every include[]-style facet tool relies on (Facet.Resolve) — previously proven only
+// in the external JS exerciser, pulled into dotnet test / CI here.
 public sealed class FacetDispatchTests
 {
     [Fact]

@@ -131,8 +131,7 @@ public sealed partial class RavenDbAdminClient
         return new DiagnosticArtifactResult(path, content.ContentType, content.Bytes.LongLength);
     }
 
-    // Name the artifact for what it actually is, so the returned path is directly openable
-    // (RavenDB returns debug packages as zip and database packages as JSON).
+    // Name the artifact for what it actually is, so the returned path is directly openable.
     private static string ExtensionFor(string contentType) => contentType switch
     {
         "application/zip" => ".zip",

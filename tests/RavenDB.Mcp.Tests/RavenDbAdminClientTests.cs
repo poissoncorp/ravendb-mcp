@@ -64,8 +64,7 @@ public sealed class RavenDbAdminClientTests(RavenDbTestFixture fixture)
                 .GetString()!;
 
             Assert.DoesNotContain(secret, raw);
-            // Hybrid redaction tokenizes the connection string: the secret is masked in place while the
-            // non-secret parts survive (so the agent still sees Server/User Id).
+            // Hybrid redaction tokenizes the connection string: secret masked in place, Server/User Id kept.
             Assert.Contains("Server=db", connectionString);
             Assert.Contains("Password=***redacted***", connectionString);
             Assert.DoesNotContain(secret, connectionString);

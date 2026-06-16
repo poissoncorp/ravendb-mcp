@@ -46,7 +46,6 @@ public sealed partial class RavenDbAdminClient(
         if (record is null)
             throw new InvalidOperationException($"Database '{databaseName}' was not found.");
 
-        // DatabaseRecord keeps most payload data in fields; redact connection-string secrets (ADR-0011).
         return RedactSecrets(ToJson(record));
     }
 
@@ -56,18 +55,16 @@ public sealed partial class RavenDbAdminClient(
         return store.Maintenance.ForDatabase(databaseName);
     }
 
-    // Hybrid secret redaction at the record boundary (ADR-0011): secrets live in the connection-string
-    // sections (SQL passwords, S3/Azure/GCS keys, SAS tokens, Elasticsearch/AI keys). Inside those
-    // sections we redact precisely — masking known secret FIELDS and tokenizing connection-string TEXT
-    // so only the secret is hidden (Server/Database survive). Everywhere else a narrow key-name backstop
-    // catches stray secrets in unknown/new sections (defense-in-depth; fail-safe over fail-open).
+    // Hybrid secret redaction (ADR-0011): inside the connection-string sections, mask secret fields and
+    // tokenize connection-string text (Server/Database survive); elsewhere a narrow key-name backstop
+    // catches stray secrets in unknown sections (fail-safe over fail-open).
     private static readonly HashSet<string> SecretContainers = new(StringComparer.OrdinalIgnoreCase)
     {
         "SqlConnectionStrings", "OlapConnectionStrings", "ElasticSearchConnectionStrings",
         "QueueConnectionStrings", "RavenConnectionStrings", "AiConnectionStrings"
     };
 
-    // Broad set — masked when nested inside a secret container (ambiguous names are safe there).
+    // Masked inside a secret container (broad — ambiguous names are safe here).
     private static readonly HashSet<string> ScopedSecretKeys = new(StringComparer.OrdinalIgnoreCase)
     {
         "Password", "Pwd", "ApiKey", "ApiKeyId", "Secret", "SecretKey", "AccessKey", "AccountKey",
@@ -82,8 +79,7 @@ public sealed partial class RavenDbAdminClient(
         "SasToken", "SharedAccessKey", "GoogleCredentialsJson"
     };
 
-    // Secret tokens inside connection-string TEXT (k=v;…, incl. prefixed forms like sasl.password,
-    // client_secret) and credentials embedded in URL userinfo (scheme://user:pass@host).
+    // Secret tokens in connection-string text (incl. prefixed forms like sasl.password) and URL userinfo.
     private static readonly Regex ConnectionStringSecret = new(
         @"(?i)([\w.]*(?:password|pwd|accountkey|sharedaccesssignature|sharedaccesskey|secretkey|secret|accesskey|apikey|sig))(\s*=\s*)([^;]*)",
         RegexOptions.Compiled);

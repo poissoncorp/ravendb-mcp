@@ -6,10 +6,8 @@ using RavenDB.Mcp.RavenDB;
 
 namespace RavenDB.Mcp.Tests;
 
-// Read-path coverage for data capabilities the facet tools expose but the suite never exercised:
-// counters, time-series, compare-exchange, revisions/conflicts, the AI-agents availability envelope,
-// and the remaining sample_live_feed dispatch arms. Live integration against the fixture; data the
-// minimal shared seed lacks is created on an isolated Guid-suffixed database and hard-deleted after.
+// Read-path coverage for capabilities the suite didn't exercise: counters, time-series,
+// compare-exchange, revisions/conflicts, AI-agents envelope, the remaining sample feeds.
 public sealed class DataCapabilityTests(RavenDbTestFixture fixture)
     : IClassFixture<RavenDbTestFixture>
 {
@@ -26,7 +24,6 @@ public sealed class DataCapabilityTests(RavenDbTestFixture fixture)
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 
-        // The typed AI Agents Client-API path flows through TryReadJson -> { available, value|error }.
         var result = await NewClient().GetAiAgents(fixture.DatabaseName, null, cts.Token);
 
         var available = result.GetProperty("available");
@@ -44,11 +41,9 @@ public sealed class DataCapabilityTests(RavenDbTestFixture fixture)
         var client = NewClient();
         var id = await SeededDocumentIdAsync(client, cts.Token);
 
-        // A counterless document must not throw — the typed GetCountersOperation path returns an object.
         var counters = await client.GetDocumentCounters(fixture.DatabaseName, id, cts.Token);
         Assert.Equal(JsonValueKind.Object, counters.ValueKind);
 
-        // Empty compare-exchange set: the GetCompareExchangeValuesOperation paging path returns an object.
         var compareExchange = await client.GetCompareExchange(fixture.DatabaseName, null, null, cts.Token);
         Assert.Equal(JsonValueKind.Object, compareExchange.ValueKind);
     }
@@ -73,8 +68,6 @@ public sealed class DataCapabilityTests(RavenDbTestFixture fixture)
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         var client = NewClient();
 
-        // The two remaining HTTP-stream feeds (the magic-'kind'-string removal must route each FeedKind
-        // arm to a distinct client method with the right discriminator).
         var allocations = await client.SampleAllocations(1, cts.Token);
         Assert.Equal("allocations", allocations.Kind);
         Assert.Equal(131_072, allocations.Limit);

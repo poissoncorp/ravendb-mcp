@@ -166,8 +166,7 @@ public sealed class McpServerE2ETests(RavenDbTestFixture fixture)
             timeout.Token);
         Assert.NotEmpty(exportedLogs.RootElement.GetProperty("path").GetString()!);
 
-        // --- facet dispatch correctness over the protocol: prove default resolution and single-section
-        // selection, asserting ABSENCE of unselected sections (the 'all keys present' asserts above can't). ---
+        // Dispatch correctness: default resolution + single-section, asserting ABSENCE of unselected sections.
         using var indexDefault = await client.CallTool(
             "get_index",
             new { databaseName = fixture.DatabaseName, indexName = fixture.IndexName },

@@ -3,8 +3,7 @@ using RavenDB.Mcp.RavenDB;
 
 namespace RavenDB.Mcp.Tests;
 
-// Unit tests for the hybrid connection-string redaction (ADR-0011): precise + tokenized inside the
-// known secret containers, with a narrow global key-name backstop everywhere else.
+// Unit tests for the hybrid connection-string redaction (ADR-0011).
 public sealed class RedactionTests
 {
     private const string Redacted = "***redacted***";
@@ -69,7 +68,6 @@ public sealed class RedactionTests
     [Fact]
     public void GlobalBackstop_MasksSecretInUnknownSection()
     {
-        // A secret-named field in a section we don't explicitly know about must still be masked.
         var r = Redact("""{ "SomeFutureSection": { "Password": "leaked", "ApiKey": "sk-x" } }""");
         Assert.Equal(Redacted, Str(r, "SomeFutureSection", "Password"));
         Assert.Equal(Redacted, Str(r, "SomeFutureSection", "ApiKey"));
@@ -78,8 +76,7 @@ public sealed class RedactionTests
     [Fact]
     public void DoesNotOverRedact_AmbiguousNameOutsideContainer()
     {
-        // "Secret" is ambiguous; outside a secret container it is NOT in the narrow global set,
-        // so a benign field keeps its value (the old whole-tree walk would have masked it).
+        // "Secret"/"AccessKey" are ambiguous: outside a container they're not in the narrow global set.
         var r = Redact("""{ "CustomConfig": { "Secret": "not-a-credential", "AccessKey": "public-id" } }""");
         Assert.Equal("not-a-credential", Str(r, "CustomConfig", "Secret"));
         Assert.Equal("public-id", Str(r, "CustomConfig", "AccessKey"));

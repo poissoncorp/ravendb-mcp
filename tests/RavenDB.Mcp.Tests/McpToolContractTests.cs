@@ -29,9 +29,8 @@ public sealed class McpToolContractTests
     }
 
     // Missing-required-argument guards must reach the agent with the SPECIFIC message (thrown as
-    // McpException), not the SDK's generic "An error occurred invoking '<tool>'." wrapper — otherwise
-    // the agent can't tell which argument it forgot and can't self-correct. Each guard fires before
-    // any RavenDB call, so this runs against a dead URL with no server.
+    // McpException), not the SDK's generic wrapper — else the agent can't self-correct. Runs against a
+    // dead URL since each guard fires before any RavenDB call.
     [Theory]
     [InlineData("get_index", /*args*/ "{\"databaseName\":\"x\",\"indexName\":\"i\",\"include\":[\"Terms\"]}", "fieldName is required")]
     [InlineData("get_network_details", "{\"databaseName\":\"x\",\"include\":[\"DatabaseInfo\"]}", "nodeTag is required")]
