@@ -15,6 +15,7 @@ internal static class ToolCatalog
         "get_index",
         "get_live_workload",
         "get_network_details",
+        "get_notifications",
         "get_server_config",
         "get_server_resources",
         "get_tasks",

@@ -219,10 +219,7 @@ public enum ClusterInclude
     ServerDiagnostics,
 
     /// <summary>Cluster-level diagnostics (observer decisions, cluster log, engine logs, ...).</summary>
-    ClusterDiagnostics,
-
-    /// <summary>Server-wide notifications (alerts, performance hints, errors).</summary>
-    Notifications
+    ClusterDiagnostics
 }
 
 /// <summary>Which debug package <c>collect_debug_package</c> downloads.</summary>

@@ -9,7 +9,7 @@ namespace RavenDB.Mcp.Tools;
 public static class ServerTools
 {
     [McpServerTool(Name = "get_cluster_overview", ReadOnly = true)]
-    [Description("Cluster and server overview. Sections: Nodes (topology, leader, per-node tag/type/url/health), ServerInfo (build/version + contacted node), ServerDiagnostics (routes/settings/metrics/license/idle DBs), ClusterDiagnostics (observer decisions, cluster log, engine logs), Notifications (server-wide alerts). Choose with include; default is Nodes + ServerInfo.")]
+    [Description("Cluster and server overview. Sections: Nodes (topology, leader, per-node tag/type/url/health), ServerInfo (build/version + contacted node), ServerDiagnostics (routes/settings/metrics/license/idle DBs), ClusterDiagnostics (observer decisions, cluster log, engine logs). Choose with include; default is Nodes + ServerInfo. For alerts/hints use get_notifications.")]
     public static async Task<Dictionary<string, object?>> GetClusterOverview(
         RavenDbAdminClient client,
         [Description("Sections to return; omit for Nodes + ServerInfo.")] ClusterInclude[]? include,
@@ -22,9 +22,18 @@ public static class ServerTools
         if (sections.Contains(ClusterInclude.ServerInfo)) result["serverInfo"] = await client.GetServerInfo(cancellationToken);
         if (sections.Contains(ClusterInclude.ServerDiagnostics)) result["serverDiagnostics"] = await client.GetServerDiagnosticsOverview(cancellationToken);
         if (sections.Contains(ClusterInclude.ClusterDiagnostics)) result["clusterDiagnostics"] = await client.GetClusterDiagnosticsOverview(cancellationToken);
-        if (sections.Contains(ClusterInclude.Notifications)) result["notifications"] = await client.GetNotifications(null, cancellationToken);
 
         return result;
+    }
+
+    [McpServerTool(Name = "get_notifications", ReadOnly = true)]
+    [Description("Active RavenDB notifications — alerts, performance hints, and operation/error notices. Omit databaseName for server-wide notifications; pass it to scope to one database. Returns the raw notification list (group/categorize client-side as needed).")]
+    public static Task<GetNotificationsResult> GetNotifications(
+        RavenDbAdminClient client,
+        [Description("Database to scope to; omit for server-wide notifications.")] string? databaseName,
+        CancellationToken cancellationToken)
+    {
+        return client.GetNotifications(databaseName, cancellationToken);
     }
 
     [McpServerTool(Name = "get_server_config", ReadOnly = true)]
