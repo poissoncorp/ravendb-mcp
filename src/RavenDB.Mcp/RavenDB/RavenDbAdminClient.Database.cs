@@ -95,10 +95,12 @@ public sealed partial class RavenDbAdminClient
         return new GetClientConfigurationResult(databaseName, ToJson(configuration));
     }
 
+    // Studio configuration is optional; the route 404s until it's been set. Availability-wrapped
+    // so a database without studio config reports { available: false } instead of throwing.
     public Task<JsonElement> GetDatabaseStudioConfiguration(string databaseName, CancellationToken cancellationToken)
     {
         ValidateDatabaseName(databaseName);
-        return GetDatabaseJson(databaseName, "/configuration/studio", cancellationToken);
+        return TryGetDatabaseJson(databaseName, "/configuration/studio", cancellationToken);
     }
 
     // No typed Client-API operation; availability-wrapped because these vary by version/topology

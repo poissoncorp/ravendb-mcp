@@ -244,9 +244,11 @@ public sealed partial class RavenDbAdminClient
             await GetServerJson("/admin/traffic-watch/configuration", cancellationToken));
     }
 
+    // Studio configuration is optional; the route 404s until it's been set. Availability-wrapped
+    // so an unconfigured server reports { available: false } instead of throwing.
     public Task<JsonElement> GetServerStudioConfiguration(CancellationToken cancellationToken)
     {
-        return GetServerJson("/configuration/studio", cancellationToken);
+        return TryGetServerJson("/configuration/studio", cancellationToken);
     }
 
     public Task<DiagnosticArtifactResult> ExportLogs(
