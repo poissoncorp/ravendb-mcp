@@ -146,18 +146,13 @@ Replace `<repo>` with the absolute path to this checkout, and `RAVENDB_URLS` wit
 
 ## Tool Surface
 
-The v1 tools are read-only. Tool names are `snake_case`. Tools whose result is fully typed advertise a structured output schema (`UseStructuredContent`); tools that pass through RavenDB's large/variable JSON return it as a text content block instead of an opaque schema, so the tool list stays small and works with strict MCP clients.
+**21 read-only tools** — 15 parameterized *facet* tools plus 6 singletons. Tool names are `snake_case`. Each facet tool takes enum/enum-array selectors (the agent sees the allowed values as a JSON-Schema `enum`) and returns a result keyed by the selected sections, so one tool covers a whole subject without bloating `tools/list`. Tools whose result is fully typed advertise a structured output schema (`UseStructuredContent`); facet tools and tools that pass through RavenDB's large/variable JSON return it as a text content block instead, so the tool list stays small and works with strict MCP clients.
 
-Current categories:
+Facet tools (selector-driven): `get_cluster_overview`, `get_server_config`, `get_server_resources`, `get_network_details`, `get_database_stats`, `get_database_config`, `get_index`, `get_tasks`, `get_live_workload`, `inspect_storage`, `get_document_data`, `sample_live_feed`, `wait_for_completion`, `collect_debug_package`, `get_ai_agents`.
 
-- cluster and node overview
-- server diagnostics, configuration, logs, notifications, and traffic watch
-- database record, configuration, stats, collections, and identities
-- indexing overview, index details, terms, progress, staleness, and debug details
-- operations, waits, queries, and transaction diagnostics
-- ongoing tasks, backup, ETL, subscriptions, and replication diagnostics
-- storage, memory, CPU, IO, TCP, stack traces, and runtime sampling
-- document-shape diagnostics, revisions, document-id export, and support packages
+Singletons: `list_databases`, `get_database_record` (secrets redacted), `get_notifications`, `run_query`, `list_compare_exchange`, `export_server_logs`.
+
+Connection-string secrets (passwords, API keys, cloud credentials, SAS tokens) are masked as `***redacted***` at the database-record boundary, so `get_database_record` and any facet projecting the record never leak them.
 
 Some tools return artifact references instead of large payloads:
 
@@ -171,7 +166,7 @@ Some tools return artifact references instead of large payloads:
 
 ## Safety
 
-The v1 server exposes read-only tools only. MCP read-only annotations are used where the SDK supports them. Sensitive diagnostics are tracked as project metadata, not as a protocol guarantee; the current MCP SDK does not expose a standard `sensitive` tool annotation.
+The server exposes read-only tools only. MCP read-only annotations are used where the SDK supports them. Sensitive diagnostics are tracked as project metadata, not as a protocol guarantee; the current MCP SDK does not expose a standard `sensitive` tool annotation.
 
 Use RavenDB permissions to control what the configured certificate can see. Operator certificates are the current target for secured diagnostics.
 

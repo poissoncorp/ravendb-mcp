@@ -46,33 +46,27 @@ public sealed class RawHttpDiagnosticsTests
 
         Assert.StartsWith(artifactsPath, result.Path);
         Assert.Equal("text/plain", result.ContentType);
+        Assert.EndsWith(".txt", result.Path); // named for its content type, not a generic .bin
         Assert.Equal("admin log line".Length, result.Bytes);
         Assert.Equal("admin log line", await File.ReadAllTextAsync(result.Path));
     }
 
     [Fact]
-    public async Task QueryMetadataOnlyDoesNotReturnRows()
+    public async Task ArtifactFileExtensionMatchesContentType()
     {
+        var artifactsPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         await using var server = new FakeRavenHttpServer();
-        server.Json(
-            "/databases/Test/queries",
-            """
-            {
-              "Results": [{"Name":"Ada"}],
-              "TotalResults": 1,
-              "IndexName": "Auto/Test/ByName",
-              "IsStale": false,
-              "DurationInMs": 3
-            }
-            """);
+        server.Json("/databases/Test/debug/info-package", """{ "ok": true }""");
 
         using var store = new DocumentStore { Urls = [server.Url] };
-        var client = new RavenDbAdminClient(store, Options.Create(new RavenDbOptions { Urls = [server.Url] }));
+        var client = new RavenDbAdminClient(
+            store,
+            Options.Create(new RavenDbOptions { Urls = [server.Url], ArtifactsPath = artifactsPath }));
 
-        var result = await client.QueryMetadataOnly("Test", "from Test", 1, CancellationToken.None);
+        var result = await client.CollectDatabaseInfoPackage("Test", CancellationToken.None);
 
-        Assert.Equal(JsonValueKind.Number, result.Metadata.GetProperty("TotalResults").ValueKind);
-        Assert.Equal(JsonValueKind.String, result.Metadata.GetProperty("IndexName").ValueKind);
-        Assert.False(result.Metadata.TryGetProperty("Results", out _));
+        Assert.Equal("application/json", result.ContentType);
+        Assert.EndsWith(".json", result.Path); // a JSON package is *.json, not *.bin
     }
+
 }

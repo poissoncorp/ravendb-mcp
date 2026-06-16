@@ -53,6 +53,18 @@ public sealed partial class RavenDbAdminClient
         }
     }
 
+    private async Task<JsonElement> TryReadJson<T>(Func<Task<T>> read, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return ToJson(new { available = true, value = await read() });
+        }
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            return ToJson(new { available = false, error = exception.Message });
+        }
+    }
+
     private async Task<JsonElement> PostDatabaseJson(
         string databaseName,
         string path,
@@ -112,12 +124,21 @@ public sealed partial class RavenDbAdminClient
     {
         Directory.CreateDirectory(artifactsPath);
 
-        var fileName = $"{DateTime.UtcNow:yyyyMMddHHmmssfff}-{SanitizeFileName(name)}.bin";
+        var fileName = $"{DateTime.UtcNow:yyyyMMddHHmmssfff}-{SanitizeFileName(name)}{ExtensionFor(content.ContentType)}";
         var path = Path.Combine(artifactsPath, fileName);
         await File.WriteAllBytesAsync(path, content.Bytes, cancellationToken);
 
         return new DiagnosticArtifactResult(path, content.ContentType, content.Bytes.LongLength);
     }
+
+    // Name the artifact for what it actually is, so the returned path is directly openable.
+    private static string ExtensionFor(string contentType) => contentType switch
+    {
+        "application/zip" => ".zip",
+        "application/json" => ".json",
+        "text/plain" => ".txt",
+        _ => ".bin",
+    };
 
     private static string SanitizeFileName(string value)
     {

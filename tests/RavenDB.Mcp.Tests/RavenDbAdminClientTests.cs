@@ -1,4 +1,8 @@
 using System.Text.Json;
+using Raven.Client.Documents.Operations.ConnectionStrings;
+using Raven.Client.Documents.Operations.ETL.SQL;
+using Raven.Client.ServerWide;
+using Raven.Client.ServerWide.Operations;
 using RavenDB.Mcp.RavenDB;
 
 namespace RavenDB.Mcp.Tests;
@@ -29,6 +33,50 @@ public sealed class RavenDbAdminClientTests(RavenDbTestFixture fixture)
     }
 
     [Fact]
+    public async Task RedactsConnectionStringSecretsInDatabaseRecord()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        const string secret = "Sup3rSecretEtlPassword!";
+
+        // Isolated database so the secret never lingers in the shared fixture state.
+        var databaseName = $"RavenDB_Mcp_Redaction_{Guid.NewGuid():N}";
+        await fixture.Store.Maintenance.Server.SendAsync(
+            new CreateDatabaseOperation(new DatabaseRecord(databaseName)), timeout.Token);
+
+        try
+        {
+            await fixture.Store.Maintenance.ForDatabase(databaseName).SendAsync(
+                new PutConnectionStringOperation<SqlConnectionString>(new SqlConnectionString
+                {
+                    Name = "reporting-sql",
+                    FactoryName = "System.Data.SqlClient",
+                    ConnectionString = $"Server=db;User Id=sa;Password={secret}"
+                }),
+                timeout.Token);
+
+            var record = await new RavenDbAdminClient(fixture.Store).GetDatabaseRecord(databaseName, timeout.Token);
+            var raw = record.Record.GetRawText();
+
+            var connectionString = record.Record
+                .GetProperty("SqlConnectionStrings")
+                .GetProperty("reporting-sql")
+                .GetProperty("ConnectionString")
+                .GetString()!;
+
+            Assert.DoesNotContain(secret, raw);
+            // Hybrid redaction tokenizes the connection string: secret masked in place, Server/User Id kept.
+            Assert.Contains("Server=db", connectionString);
+            Assert.Contains("Password=***redacted***", connectionString);
+            Assert.DoesNotContain(secret, connectionString);
+        }
+        finally
+        {
+            await fixture.Store.Maintenance.Server.SendAsync(
+                new DeleteDatabasesOperation(databaseName, hardDelete: true), timeout.Token);
+        }
+    }
+
+    [Fact]
     public async Task ReadsBetaDiagnosticCategories()
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -38,11 +86,6 @@ public sealed class RavenDbAdminClientTests(RavenDbTestFixture fixture)
         var nodeTag = clusterNodes.Cluster.RespondingNodeTag!;
 
         Assert.Equal(JsonValueKind.Object, (await client.GetLogsConfiguration(timeout.Token)).Configuration.ValueKind);
-
-        var overview = await client.GetDatabaseOverview(fixture.DatabaseName, timeout.Token);
-        Assert.Equal(fixture.DatabaseName, overview.DatabaseName);
-        Assert.Equal(JsonValueKind.Object, overview.Stats.ValueKind);
-        Assert.Equal(JsonValueKind.Object, overview.DetailedStats.ValueKind);
 
         var collections = await client.GetCollectionOverview(fixture.DatabaseName, timeout.Token);
         Assert.Equal(JsonValueKind.Object, collections.Stats.ValueKind);
@@ -99,10 +142,6 @@ public sealed class RavenDbAdminClientTests(RavenDbTestFixture fixture)
         Assert.Equal(JsonValueKind.Object, environment.ScratchBuffers.ValueKind);
         Assert.Equal(JsonValueKind.Object, environment.FreeSpace.ValueKind);
 
-        var tree = await client.GetStorageTreeStructure(fixture.DatabaseName, "Docs", null, timeout.Token);
-        Assert.Equal("Docs", tree.TreeName);
-        Assert.NotEmpty(tree.Structure);
-
         Assert.Equal(JsonValueKind.Object, (await client.GetStorageCompressionDictionaries(fixture.DatabaseName, timeout.Token)).Dictionaries.ValueKind);
     }
 
@@ -112,14 +151,11 @@ public sealed class RavenDbAdminClientTests(RavenDbTestFixture fixture)
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
         var client = new RavenDbAdminClient(fixture.Store);
 
-        var resources = await client.GetServerResources(timeout.Token);
-        Assert.Equal(JsonValueKind.Object, resources.Metrics.ValueKind);
-        Assert.Equal(JsonValueKind.Object, resources.Cpu.ValueKind);
-        Assert.Equal(JsonValueKind.Object, resources.Io.ValueKind);
-        Assert.Equal(JsonValueKind.Object, resources.Gc.ValueKind);
-        Assert.Equal(JsonValueKind.Object, resources.Memory.ValueKind);
-        Assert.Equal(JsonValueKind.Object, resources.Process.ValueKind);
-        Assert.Equal(JsonValueKind.Array, resources.Threads.ValueKind);
+        Assert.Equal(JsonValueKind.Object, (await client.GetPerformanceOverview(timeout.Token)).Metrics.ValueKind);
+        Assert.Equal(JsonValueKind.Object, (await client.GetCpuStats(timeout.Token)).Cpu.ValueKind);
+        Assert.Equal(JsonValueKind.Object, (await client.GetGcMemoryStats(timeout.Token)).Gc.ValueKind);
+        Assert.Equal(JsonValueKind.Object, (await client.GetOsMemoryStats(timeout.Token)).Memory.ValueKind);
+        Assert.Equal(JsonValueKind.Object, (await client.GetProcessStats(timeout.Token)).Process.ValueKind);
 
         Assert.Equal(JsonValueKind.Object, (await client.GetIoStats(null, timeout.Token)).Io.ValueKind);
         Assert.Equal(JsonValueKind.Object, (await client.GetIoStats(fixture.DatabaseName, timeout.Token)).Io.ValueKind);
@@ -132,12 +168,12 @@ public sealed class RavenDbAdminClientTests(RavenDbTestFixture fixture)
         Assert.Equal(JsonValueKind.Object, (await client.ListTcpConnections(null, timeout.Token)).Connections.ValueKind);
         Assert.Equal(JsonValueKind.Object, (await client.ListTcpConnections(fixture.DatabaseName, timeout.Token)).Connections.ValueKind);
 
-        var runtimeEvents = await client.SampleRuntimeEvents("gc", 1, timeout.Token);
-        Assert.Equal("gc", runtimeEvents.Kind);
+        var runtimeEvents = await client.SampleGcEvents(1, timeout.Token);
+        Assert.Equal("gc_events", runtimeEvents.Kind);
         Assert.Equal(1, runtimeEvents.Seconds);
 
-        var threadDiagnostics = await client.SampleThreadDiagnostics("runaway", 1, timeout.Token);
-        Assert.Equal("runaway", threadDiagnostics.Kind);
+        var threadDiagnostics = await client.SampleThreadRunaway(timeout.Token);
+        Assert.Equal("thread_runaway", threadDiagnostics.Kind);
         Assert.NotEmpty(threadDiagnostics.Sample);
     }
 }

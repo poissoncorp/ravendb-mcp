@@ -44,27 +44,6 @@ public sealed partial class RavenDbAdminClient
                 ("type", type)));
     }
 
-    public async Task<GetStorageTreeStructureResult> GetStorageTreeStructure(
-        string databaseName,
-        string treeName,
-        string? treeKind,
-        CancellationToken cancellationToken)
-    {
-        ValidateName(treeName, "Tree name", nameof(treeName));
-
-        var kind = string.IsNullOrWhiteSpace(treeKind) ? "btree" : treeKind;
-        var path = kind.Equals("fixed_size", StringComparison.OrdinalIgnoreCase) ||
-                   kind.Equals("fst", StringComparison.OrdinalIgnoreCase)
-            ? "/debug/storage/fst-structure"
-            : "/debug/storage/btree-structure";
-
-        return new GetStorageTreeStructureResult(
-            databaseName,
-            treeName,
-            kind,
-            await GetDatabaseText(databaseName, path, cancellationToken, ("name", treeName)));
-    }
-
     public async Task<GetStorageCompressionDictionariesResult> GetStorageCompressionDictionaries(
         string databaseName,
         CancellationToken cancellationToken)
@@ -142,32 +121,6 @@ public sealed partial class RavenDbAdminClient
         return new GetPerformanceOverviewResult(await GetServerJson("/admin/metrics", cancellationToken));
     }
 
-    public async Task<GetServerResourcesResult> GetServerResources(CancellationToken cancellationToken)
-    {
-        var metricsTask = GetPerformanceOverview(cancellationToken);
-        var cpuTask = GetCpuStats(cancellationToken);
-        var ioTask = GetIoStats(null, cancellationToken);
-        var gcTask = GetGcMemoryStats(cancellationToken);
-        var memoryTask = GetOsMemoryStats(cancellationToken);
-        var processTask = GetProcessStats(cancellationToken);
-
-        await Task.WhenAll(metricsTask, cpuTask, ioTask, gcTask, memoryTask, processTask);
-
-        var memory = (await memoryTask).Memory;
-        var threads = memory.TryGetProperty("Threads", out var threadsValue)
-            ? threadsValue.Clone()
-            : ToJson(new { available = false, reason = "Threads not present in memory stats." });
-
-        return new GetServerResourcesResult(
-            (await metricsTask).Metrics,
-            (await cpuTask).Cpu,
-            (await ioTask).Io,
-            (await gcTask).Gc,
-            memory,
-            (await processTask).Process,
-            threads);
-    }
-
     public async Task<GetCpuStatsResult> GetCpuStats(CancellationToken cancellationToken)
     {
         return new GetCpuStatsResult(await GetServerJson("/admin/debug/cpu/stats", cancellationToken));
@@ -208,17 +161,14 @@ public sealed partial class RavenDbAdminClient
         return new GetEncryptionBufferPoolStatsResult(await GetServerJson("/admin/debug/memory/encryption-buffer-pool", cancellationToken));
     }
 
-    public async Task<SampleRuntimeEventsResult> SampleRuntimeEvents(
+    private async Task<DiagnosticTextSampleResult> SampleServerTextFeed(
         string kind,
+        string path,
         int seconds,
         CancellationToken cancellationToken)
     {
-        var path = kind.Equals("gc", StringComparison.OrdinalIgnoreCase)
-            ? "/admin/debug/memory/gc-events"
-            : "/admin/debug/memory/allocations";
-
         var sample = await GetServerTextSample(path, seconds, cancellationToken);
-        return new SampleRuntimeEventsResult(
+        return new DiagnosticTextSampleResult(
             kind,
             Math.Clamp(seconds, 1, 30),
             sample.Text,
@@ -226,26 +176,17 @@ public sealed partial class RavenDbAdminClient
             sample.Limit);
     }
 
-    public async Task<SampleThreadDiagnosticsResult> SampleThreadDiagnostics(
-        string kind,
-        int seconds,
-        CancellationToken cancellationToken)
-    {
-        var path = kind.Equals("contention", StringComparison.OrdinalIgnoreCase)
-            ? "/admin/debug/threads/contention"
-            : "/admin/debug/threads/runaway";
+    public Task<DiagnosticTextSampleResult> SampleGcEvents(int seconds, CancellationToken cancellationToken)
+        => SampleServerTextFeed("gc_events", "/admin/debug/memory/gc-events", seconds, cancellationToken);
 
-        if (path.EndsWith("/runaway", StringComparison.Ordinal))
-            return new SampleThreadDiagnosticsResult(kind, 0, await GetServerText(path, cancellationToken), false, 0);
+    public Task<DiagnosticTextSampleResult> SampleAllocations(int seconds, CancellationToken cancellationToken)
+        => SampleServerTextFeed("allocations", "/admin/debug/memory/allocations", seconds, cancellationToken);
 
-        var sample = await GetServerTextSample(path, seconds, cancellationToken);
-        return new SampleThreadDiagnosticsResult(
-            kind,
-            Math.Clamp(seconds, 1, 30),
-            sample.Text,
-            sample.Truncated,
-            sample.Limit);
-    }
+    public Task<DiagnosticTextSampleResult> SampleThreadContention(int seconds, CancellationToken cancellationToken)
+        => SampleServerTextFeed("thread_contention", "/admin/debug/threads/contention", seconds, cancellationToken);
+
+    public async Task<DiagnosticTextSampleResult> SampleThreadRunaway(CancellationToken cancellationToken)
+        => new("thread_runaway", 0, await GetServerText("/admin/debug/threads/runaway", cancellationToken), false, 0);
 
     public async Task<GetStackTracesResult> GetStackTraces(CancellationToken cancellationToken)
     {

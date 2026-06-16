@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Text.Json;
 using Raven.Client.Documents.Operations;
 using Raven.Client.ServerWide.Commands;
@@ -46,32 +45,6 @@ public sealed partial class RavenDbAdminClient
             await remoteTask,
             await engineTask,
             await stateTask);
-    }
-
-    public async Task<PingClusterNodeResult> PingClusterNode(string url, CancellationToken cancellationToken)
-    {
-        ValidateName(url, "Node URL", nameof(url));
-
-        var target = url.TrimEnd('/') + "/admin/debug/node/ping";
-        var stopwatch = Stopwatch.StartNew();
-
-        try
-        {
-            using var response = await http.GetAsync(target, cancellationToken);
-            stopwatch.Stop();
-
-            return new PingClusterNodeResult(
-                url,
-                (int)response.StatusCode,
-                response.IsSuccessStatusCode,
-                stopwatch.ElapsedMilliseconds,
-                null);
-        }
-        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
-        {
-            stopwatch.Stop();
-            return new PingClusterNodeResult(url, null, false, stopwatch.ElapsedMilliseconds, exception.Message);
-        }
     }
 
     public async Task<DiagnosticTextSampleResult> SampleClusterDashboard(int seconds, CancellationToken cancellationToken)
@@ -269,6 +242,12 @@ public sealed partial class RavenDbAdminClient
     {
         return new GetTrafficWatchConfigurationResult(
             await GetServerJson("/admin/traffic-watch/configuration", cancellationToken));
+    }
+
+    // The studio-config route 404s until set; availability-wrapped.
+    public Task<JsonElement> GetServerStudioConfiguration(CancellationToken cancellationToken)
+    {
+        return TryGetServerJson("/configuration/studio", cancellationToken);
     }
 
     public Task<DiagnosticArtifactResult> ExportLogs(

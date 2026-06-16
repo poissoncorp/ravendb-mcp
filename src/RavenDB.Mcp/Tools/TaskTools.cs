@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Text.Json;
+using ModelContextProtocol;
 using ModelContextProtocol.Server;
 using Raven.Client.Documents.Operations.OngoingTasks;
 using RavenDB.Mcp.RavenDB;
@@ -9,70 +10,56 @@ namespace RavenDB.Mcp.Tools;
 [McpServerToolType]
 public static class TaskTools
 {
-    [McpServerTool(Name = "get_database_tasks", ReadOnly = true)]
-    [Description("All ongoing tasks for a database in one call: backups, ETL, replication, and subscriptions (from the database record + subscription state).")]
-    public static Task<GetDatabaseTasksResult> GetDatabaseTasks(
+    [McpServerTool(Name = "get_tasks", ReadOnly = true)]
+    [Description("Ongoing tasks for a database. Default (no taskId/subscriptionName/diagnostics) lists all tasks: backups, ETL, replication, subscriptions. Provide taskId (+taskType) for one task's runtime info; subscriptionName for a subscription's processing state; set includeDiagnostics (+taskType) for deep diagnostics of that family (Backup / *Etl / Subscription / Replication).")]
+    public static async Task<Dictionary<string, object?>> GetTasks(
         RavenDbAdminClient client,
-        string databaseName,
-        CancellationToken cancellationToken)
+        [Description("Database to read tasks for.")] string databaseName,
+        [Description("Task type for info or diagnostics: Backup, RavenEtl, SqlEtl, OlapEtl, ElasticSearchEtl, QueueEtl, QueueSink, Replication, Subscription, PullReplicationAsHub, PullReplicationAsSink.")] OngoingTaskType? taskType = null,
+        [Description("Task id — returns this task's runtime info (requires taskType).")] long? taskId = null,
+        [Description("Subscription name — returns this subscription's processing state.")] string? subscriptionName = null,
+        [Description("Add deep diagnostics for the taskType family (requires taskType).")] bool includeDiagnostics = false,
+        CancellationToken cancellationToken = default)
     {
-        return client.GetDatabaseTasks(databaseName, cancellationToken);
+        var result = new Dictionary<string, object?>();
+
+        if (taskId is { } id)
+            result["info"] = await client.GetOngoingTaskInfo(
+                databaseName, id,
+                taskType ?? throw new McpException("taskType is required when taskId is given."),
+                cancellationToken);
+
+        if (!string.IsNullOrWhiteSpace(subscriptionName))
+            result["subscriptionState"] = await client.GetSubscriptionState(databaseName, subscriptionName, cancellationToken);
+
+        if (includeDiagnostics)
+            result["diagnostics"] = await TaskDiagnostics(
+                client, databaseName,
+                taskType ?? throw new McpException("taskType is required when includeDiagnostics is set."),
+                cancellationToken);
+
+        if (result.Count == 0)
+            result["tasks"] = await client.GetDatabaseTasks(databaseName, cancellationToken);
+
+        return result;
     }
 
-    [McpServerTool(Name = "get_backup_tasks", ReadOnly = true)]
-    [Description("Periodic-backup task definitions for a database (schedules, destinations, and settings from the database record).")]
-    public static Task<GetBackupTasksResult> GetBackupTasks(
+    private static async Task<object?> TaskDiagnostics(
         RavenDbAdminClient client,
         string databaseName,
-        CancellationToken cancellationToken)
-    {
-        return client.GetBackupTasks(databaseName, cancellationToken);
-    }
-
-    [McpServerTool(Name = "get_backup_status", ReadOnly = true)]
-    [Description("Last/most-recent run status of one periodic-backup task by id: timings, durations, sizes, and any error.")]
-    public static Task<GetBackupStatusResult> GetBackupStatus(
-        RavenDbAdminClient client,
-        string databaseName,
-        long taskId,
-        CancellationToken cancellationToken)
-    {
-        return client.GetBackupStatus(databaseName, taskId, cancellationToken);
-    }
-
-    [McpServerTool(Name = "get_ongoing_task_info", ReadOnly = true)]
-    [Description("Detailed runtime info for one ongoing task by id and type (e.g. Backup, Replication, RavenEtl, SqlEtl, Subscription): responsible node, connection status, and task-specific state.")]
-    public static Task<GetOngoingTaskInfoResult> GetOngoingTaskInfo(
-        RavenDbAdminClient client,
-        string databaseName,
-        long taskId,
         OngoingTaskType taskType,
         CancellationToken cancellationToken)
-    {
-        return client.GetOngoingTaskInfo(databaseName, taskId, taskType, cancellationToken);
-    }
-
-    [McpServerTool(Name = "get_etl_tasks", ReadOnly = true)]
-    [Description("ETL task definitions for a database (RavenDB/SQL/OLAP/Elasticsearch/Queue ETL configuration from the database record).")]
-    public static Task<GetEtlTasksResult> GetEtlTasks(
-        RavenDbAdminClient client,
-        string databaseName,
-        CancellationToken cancellationToken)
-    {
-        return client.GetEtlTasks(databaseName, cancellationToken);
-    }
-
-    [McpServerTool(Name = "get_etl_task_info", ReadOnly = true)]
-    [Description("Detailed runtime info for one ETL task by id and type: responsible node, connection status, and ETL-specific state.")]
-    public static Task<GetEtlTaskInfoResult> GetEtlTaskInfo(
-        RavenDbAdminClient client,
-        string databaseName,
-        long taskId,
-        OngoingTaskType taskType,
-        CancellationToken cancellationToken)
-    {
-        return client.GetEtlTaskInfo(databaseName, taskId, taskType, cancellationToken);
-    }
+        => taskType switch
+        {
+            OngoingTaskType.Backup => await client.GetBackupDiagnostics(databaseName, cancellationToken),
+            OngoingTaskType.RavenEtl or OngoingTaskType.SqlEtl or OngoingTaskType.OlapEtl
+                or OngoingTaskType.ElasticSearchEtl or OngoingTaskType.QueueEtl
+                => await client.GetEtlDiagnostics(databaseName, cancellationToken),
+            OngoingTaskType.Subscription => await client.GetSubscriptionDiagnostics(databaseName, cancellationToken),
+            OngoingTaskType.Replication or OngoingTaskType.PullReplicationAsHub or OngoingTaskType.PullReplicationAsSink
+                => await client.GetReplicationTasksDetails(databaseName, cancellationToken),
+            _ => throw new McpException($"No deep diagnostics available for task type '{taskType}'.")
+        };
 }
 
 public sealed record GetBackupTasksResult(string DatabaseName, JsonElement Tasks);
@@ -85,8 +72,6 @@ public sealed record GetDatabaseTasksResult(
     JsonElement ReplicationTasks,
     JsonElement Subscriptions);
 
-public sealed record GetBackupStatusResult(string DatabaseName, long TaskId, JsonElement Status);
-
 public sealed record GetOngoingTaskInfoResult(
     string DatabaseName,
     long TaskId,
@@ -94,9 +79,3 @@ public sealed record GetOngoingTaskInfoResult(
     JsonElement Task);
 
 public sealed record GetEtlTasksResult(string DatabaseName, JsonElement Tasks);
-
-public sealed record GetEtlTaskInfoResult(
-    string DatabaseName,
-    long TaskId,
-    string TaskType,
-    JsonElement Task);

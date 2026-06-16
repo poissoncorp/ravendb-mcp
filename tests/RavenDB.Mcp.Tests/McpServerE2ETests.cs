@@ -8,9 +8,9 @@ public sealed class McpServerE2ETests(RavenDbTestFixture fixture)
     : IClassFixture<RavenDbTestFixture>
 {
     [Fact]
-    public async Task ExposesAndCallsV1ToolsOverStdio()
+    public async Task ExposesAndCallsFacetToolsOverStdio()
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(90));
         await using var client = McpStdioClient.Start(fixture.Options);
 
         await client.Initialize(timeout.Token);
@@ -30,33 +30,40 @@ public sealed class McpServerE2ETests(RavenDbTestFixture fixture)
         Assert.All(toolsArray, tool => Assert.True(
             tool.GetProperty("annotations").GetProperty("readOnlyHint").GetBoolean()));
 
-        using var clusterNodes = await client.CallTool("get_cluster_nodes", null, timeout.Token);
-        Assert.Equal("7.2", clusterNodes.RootElement.GetProperty("server").GetProperty("productVersion").GetString());
-        Assert.NotEmpty(clusterNodes.RootElement.GetProperty("cluster").GetProperty("nodes").EnumerateArray());
+        // The hybrid output contract (ADR-0010): facet tools carry no outputSchema so strict
+        // clients accept the list. Guard against a regression that reintroduces `true` schemas.
+        Assert.All(toolsArray, tool => Assert.False(
+            tool.TryGetProperty("outputSchema", out var schema) && schema.ValueKind == JsonValueKind.True));
 
-        using var logsConfiguration = await client.CallTool("get_logs_configuration", null, timeout.Token);
-        Assert.Equal(JsonValueKind.Object, logsConfiguration.RootElement.GetProperty("configuration").ValueKind);
+        // get_cluster_overview — all four sections; also our source for productVersion + nodeTag.
+        using var cluster = await client.CallTool(
+            "get_cluster_overview",
+            new { include = new[] { "Nodes", "ServerInfo", "ServerDiagnostics", "ClusterDiagnostics" } },
+            timeout.Token);
+        AssertSections(cluster, "nodes", "serverInfo", "serverDiagnostics", "clusterDiagnostics");
+        Assert.Equal("7.2", cluster.RootElement.GetProperty("nodes").GetProperty("server").GetProperty("productVersion").GetString());
+        var nodeTag = cluster.RootElement.GetProperty("nodes").GetProperty("cluster").GetProperty("respondingNodeTag").GetString()!;
 
-        using var serverDiagnostics = await client.CallTool("get_server_diagnostics_overview", null, timeout.Token);
-        Assert.Equal(JsonValueKind.Object, serverDiagnostics.RootElement.GetProperty("metrics").ValueKind);
-        AssertAvailable(serverDiagnostics, "routes");
-        AssertAvailable(serverDiagnostics, "configuration");
-        AssertAvailable(serverDiagnostics, "metrics");
-        AssertAvailable(serverDiagnostics, "cpuCredits");
-        AssertAvailable(serverDiagnostics, "idleDatabases");
-        AssertAvailable(serverDiagnostics, "clusterMaintenance");
+        using var notifications = await client.CallTool("get_notifications", new { databaseName = (string?)null }, timeout.Token);
+        Assert.True(notifications.RootElement.TryGetProperty("notifications", out _));
 
-        using var clusterDiagnostics = await client.CallTool("get_cluster_diagnostics_overview", null, timeout.Token);
-        Assert.Equal(JsonValueKind.Object, clusterDiagnostics.RootElement.GetProperty("observerDecisions").ValueKind);
-        AssertAvailable(clusterDiagnostics, "observerDecisions");
-        AssertAvailable(clusterDiagnostics, "clusterLog");
-        AssertAvailable(clusterDiagnostics, "history");
-        AssertAvailable(clusterDiagnostics, "remoteConnections");
-        AssertAvailable(clusterDiagnostics, "engineLogs");
-        AssertAvailable(clusterDiagnostics, "stateChanges");
+        using var serverConfig = await client.CallTool(
+            "get_server_config",
+            new { include = new[] { "Logs", "ClientConfig", "TrafficWatch", "Studio" } },
+            timeout.Token);
+        AssertSections(serverConfig, "logs", "clientConfig", "trafficWatch", "studio");
 
-        using var serverWideClientConfiguration = await client.CallTool("get_server_wide_client_configuration", null, timeout.Token);
-        Assert.True(serverWideClientConfiguration.RootElement.GetProperty("configuration").ValueKind is JsonValueKind.Object or JsonValueKind.Null);
+        using var serverResources = await client.CallTool(
+            "get_server_resources",
+            new { include = new[] { "Metrics", "Cpu", "Process" } },
+            timeout.Token);
+        AssertSections(serverResources, "metrics", "cpu", "process");
+
+        using var network = await client.CallTool(
+            "get_network_details",
+            new { include = new[] { "Stats", "Connections", "DatabaseInfo" }, databaseName = fixture.DatabaseName, nodeTag },
+            timeout.Token);
+        AssertSections(network, "stats", "connections", "databaseInfo");
 
         using var databases = await client.CallTool("list_databases", null, timeout.Token);
         Assert.Contains(
@@ -67,176 +74,131 @@ public sealed class McpServerE2ETests(RavenDbTestFixture fixture)
             "get_database_record",
             new { databaseName = fixture.DatabaseName },
             timeout.Token);
+        Assert.Equal(fixture.DatabaseName, databaseRecord.RootElement.GetProperty("databaseName").GetString());
 
-        Assert.Equal(
-            fixture.DatabaseName,
-            databaseRecord.RootElement.GetProperty("databaseName").GetString());
-
-        var nodeTag = clusterNodes.RootElement
-            .GetProperty("cluster")
-            .GetProperty("respondingNodeTag")
-            .GetString()!;
-
-        using var databaseOverview = await client.CallTool(
-            "get_database_overview",
-            new { databaseName = fixture.DatabaseName },
+        using var stats = await client.CallTool(
+            "get_database_stats",
+            new { databaseName = fixture.DatabaseName, include = new[] { "Summary", "Detailed", "Collections", "Indexing", "Identities", "Storage" } },
             timeout.Token);
-        Assert.Equal(fixture.DatabaseName, databaseOverview.RootElement.GetProperty("databaseName").GetString());
-        Assert.Equal(JsonValueKind.Object, databaseOverview.RootElement.GetProperty("stats").ValueKind);
-        Assert.Equal(JsonValueKind.Object, databaseOverview.RootElement.GetProperty("detailedStats").ValueKind);
+        AssertSections(stats, "summary", "detailed", "collections", "indexing", "identities", "storage");
 
-        using var collectionOverview = await client.CallTool(
-            "get_collection_overview",
-            new { databaseName = fixture.DatabaseName },
+        using var databaseConfig = await client.CallTool(
+            "get_database_config",
+            new { databaseName = fixture.DatabaseName, include = new[] { "Settings", "ClientConfig" } },
             timeout.Token);
-        Assert.Equal(JsonValueKind.Object, collectionOverview.RootElement.GetProperty("stats").ValueKind);
-        Assert.Equal(JsonValueKind.Object, collectionOverview.RootElement.GetProperty("detailedStats").ValueKind);
-
-        using var databaseConfiguration = await client.CallTool(
-            "get_database_configuration",
-            new { databaseName = fixture.DatabaseName },
-            timeout.Token);
-        Assert.Equal(JsonValueKind.Object, databaseConfiguration.RootElement.GetProperty("configuration").ValueKind);
-
-        using var clientConfiguration = await client.CallTool(
-            "get_client_configuration",
-            new { databaseName = fixture.DatabaseName },
-            timeout.Token);
-        Assert.Equal(JsonValueKind.Object, clientConfiguration.RootElement.GetProperty("configuration").ValueKind);
-
-        using var indexingOverview = await client.CallTool(
-            "get_indexing_overview",
-            new { databaseName = fixture.DatabaseName },
-            timeout.Token);
-        Assert.Equal(JsonValueKind.Array, indexingOverview.RootElement.GetProperty("indexes").ValueKind);
-        Assert.Equal(JsonValueKind.Array, indexingOverview.RootElement.GetProperty("stats").ValueKind);
-        Assert.Equal(JsonValueKind.Array, indexingOverview.RootElement.GetProperty("errors").ValueKind);
-        Assert.Equal(JsonValueKind.Array, indexingOverview.RootElement.GetProperty("performance").ValueKind);
-        Assert.Equal(JsonValueKind.Object, indexingOverview.RootElement.GetProperty("status").ValueKind);
-        Assert.Equal(JsonValueKind.Object, indexingOverview.RootElement.GetProperty("progress").ValueKind);
-        AssertAvailable(indexingOverview, "progress");
-        AssertAvailabilityMetadata(indexingOverview, "suggestedMerges");
-        AssertAvailable(indexingOverview, "totalTime");
+        AssertSections(databaseConfig, "settings", "clientConfig");
 
         using var index = await client.CallTool(
             "get_index",
-            new { databaseName = fixture.DatabaseName, indexName = fixture.IndexName },
-            timeout.Token);
-        Assert.Equal(fixture.IndexName, index.RootElement.GetProperty("indexName").GetString());
-
-        using var indexTerms = await client.CallTool(
-            "get_index_terms",
             new
             {
                 databaseName = fixture.DatabaseName,
                 indexName = fixture.IndexName,
+                include = new[] { "Definition", "Staleness", "Terms" },
                 fieldName = fixture.IndexFieldName,
-                fromValue = (string?)null,
                 pageSize = 16
             },
             timeout.Token);
-        Assert.Equal(JsonValueKind.Array, indexTerms.RootElement.GetProperty("terms").ValueKind);
+        AssertSections(index, "definition", "staleness", "terms");
+        Assert.Equal(fixture.IndexName, index.RootElement.GetProperty("definition").GetProperty("indexName").GetString());
 
-        using var replication = await client.CallTool(
-            "get_replication_tasks_details",
+        using var tasks = await client.CallTool("get_tasks", new { databaseName = fixture.DatabaseName }, timeout.Token);
+        Assert.Equal(JsonValueKind.Object, tasks.RootElement.GetProperty("tasks").ValueKind);
+        AssertNoSections(tasks, "info", "subscriptionState", "diagnostics"); // default mode emits only `tasks`
+
+        using var taskDiagnostics = await client.CallTool(
+            "get_tasks",
+            new { databaseName = fixture.DatabaseName, taskType = "Replication", includeDiagnostics = true },
+            timeout.Token);
+        Assert.True(taskDiagnostics.RootElement.TryGetProperty("diagnostics", out _));
+
+        using var workload = await client.CallTool(
+            "get_live_workload",
+            new { databaseName = fixture.DatabaseName, include = new[] { "Operations", "Queries", "Transactions" } },
+            timeout.Token);
+        AssertSections(workload, "operations", "queries", "transactions");
+
+        using var storage = await client.CallTool(
+            "inspect_storage",
+            new { databaseName = fixture.DatabaseName, include = new[] { "Trees", "Environment" } },
+            timeout.Token);
+        AssertSections(storage, "trees", "environment");
+
+        // run_query gives us a live document id to drive get_document_data.
+        using var query = await client.CallTool(
+            "run_query",
+            new { databaseName = fixture.DatabaseName, query = "from TestUsers" },
+            timeout.Token);
+        var rows = query.RootElement.GetProperty("result").GetProperty("Results");
+        Assert.NotEmpty(rows.EnumerateArray());
+        var documentId = rows[0].GetProperty("@metadata").GetProperty("@id").GetString()!;
+
+        using var document = await client.CallTool(
+            "get_document_data",
+            new { databaseName = fixture.DatabaseName, id = documentId, include = new[] { "Document", "Counters" } },
+            timeout.Token);
+        AssertSections(document, "document", "counters");
+        Assert.True(document.RootElement.GetProperty("document").GetProperty("found").GetBoolean());
+
+        using var compareExchange = await client.CallTool(
+            "list_compare_exchange",
             new { databaseName = fixture.DatabaseName },
             timeout.Token);
-        Assert.Equal(JsonValueKind.Object, replication.RootElement.GetProperty("tasks").ValueKind);
-        Assert.Equal(JsonValueKind.Object, replication.RootElement.GetProperty("performance").ValueKind);
+        Assert.Equal(JsonValueKind.Object, compareExchange.RootElement.ValueKind);
 
-        using var queryDiagnostics = await client.CallTool(
-            "get_query_diagnostics",
-            new { databaseName = fixture.DatabaseName },
+        // AI agents are availability-wrapped; on a non-AI/unlicensed server this reports unavailable.
+        using var aiAgents = await client.CallTool("get_ai_agents", new { databaseName = fixture.DatabaseName }, timeout.Token);
+        Assert.True(aiAgents.RootElement.TryGetProperty("available", out _));
+
+        using var feed = await client.CallTool("sample_live_feed", new { feed = "GcEvents", seconds = 1 }, timeout.Token);
+        Assert.Equal("gc_events", feed.RootElement.GetProperty("kind").GetString());
+        Assert.Equal(131_072, feed.RootElement.GetProperty("limit").GetInt32());
+
+        using var wait = await client.CallTool(
+            "wait_for_completion",
+            new { databaseName = fixture.DatabaseName, condition = "Indexing", timeoutSeconds = 30 },
             timeout.Token);
-        Assert.Equal(JsonValueKind.Object, queryDiagnostics.RootElement.GetProperty("runningQueries").ValueKind);
-        AssertAvailable(queryDiagnostics, "runningQueries");
-        AssertAvailable(queryDiagnostics, "queryCache");
+        Assert.True(wait.RootElement.GetProperty("completed").GetBoolean());
 
-        using var backupDiagnostics = await client.CallTool(
-            "get_backup_diagnostics",
-            new { databaseName = fixture.DatabaseName },
+        using var exportedLogs = await client.CallTool(
+            "export_server_logs",
+            new { from = (string?)null, to = (string?)null },
             timeout.Token);
-        Assert.Equal(JsonValueKind.Object, backupDiagnostics.RootElement.GetProperty("tasks").ValueKind);
+        Assert.NotEmpty(exportedLogs.RootElement.GetProperty("path").GetString()!);
 
-        using var backupTasks = await client.CallTool(
-            "get_backup_tasks",
-            new { databaseName = fixture.DatabaseName },
+        // Dispatch correctness: default resolution + single-section, asserting ABSENCE of unselected sections.
+        using var indexDefault = await client.CallTool(
+            "get_index",
+            new { databaseName = fixture.DatabaseName, indexName = fixture.IndexName },
             timeout.Token);
-        Assert.Equal(JsonValueKind.Object, backupTasks.RootElement.GetProperty("tasks").ValueKind);
+        AssertSections(indexDefault, "definition", "staleness"); // the default include set
+        AssertNoSections(indexDefault, "terms", "debug", "errors", "performance");
 
-        using var etlTasks = await client.CallTool(
-            "get_etl_tasks",
-            new { databaseName = fixture.DatabaseName },
+        using var statsOne = await client.CallTool(
+            "get_database_stats",
+            new { databaseName = fixture.DatabaseName, include = new[] { "Tombstones" } },
             timeout.Token);
-        Assert.Equal(JsonValueKind.Object, etlTasks.RootElement.GetProperty("tasks").ValueKind);
+        AssertSections(statsOne, "tombstones");
+        AssertNoSections(statsOne, "summary", "collections", "indexing");
 
-        using var etlDiagnostics = await client.CallTool(
-            "get_etl_diagnostics",
-            new { databaseName = fixture.DatabaseName },
+        // The attachments projection branch runs (the seeded doc has none, so null is acceptable).
+        using var attachments = await client.CallTool(
+            "get_document_data",
+            new { databaseName = fixture.DatabaseName, id = documentId, include = new[] { "Attachments" } },
             timeout.Token);
-        Assert.Equal(JsonValueKind.Object, etlDiagnostics.RootElement.GetProperty("tasks").ValueKind);
+        Assert.True(attachments.RootElement.TryGetProperty("attachments", out _));
+    }
 
-        using var ongoingTasks = await client.CallTool(
-            "get_database_tasks",
-            new { databaseName = fixture.DatabaseName },
-            timeout.Token);
-        Assert.Equal(JsonValueKind.Object, ongoingTasks.RootElement.GetProperty("tasks").ValueKind);
+    private static void AssertSections(JsonDocument document, params string[] sections)
+    {
+        foreach (var section in sections)
+            Assert.True(document.RootElement.TryGetProperty(section, out _), $"missing facet section '{section}'");
+    }
 
-        using var subscriptions = await client.CallTool(
-            "get_subscriptions",
-            new { databaseName = fixture.DatabaseName },
-            timeout.Token);
-        Assert.Equal(JsonValueKind.Array, subscriptions.RootElement.GetProperty("subscriptions").ValueKind);
-
-        using var subscriptionDiagnostics = await client.CallTool(
-            "get_subscription_diagnostics",
-            new { databaseName = fixture.DatabaseName },
-            timeout.Token);
-        Assert.Equal(JsonValueKind.Array, subscriptionDiagnostics.RootElement.GetProperty("subscriptions").ValueKind);
-
-        using var tcp = await client.CallTool(
-            "get_database_tcp_info",
-            new { databaseName = fixture.DatabaseName, nodeTag },
-            timeout.Token);
-        Assert.Equal(JsonValueKind.Object, tcp.RootElement.GetProperty("tcp").ValueKind);
-
-        using var identities = await client.CallTool(
-            "get_identities",
-            new { databaseName = fixture.DatabaseName },
-            timeout.Token);
-        Assert.Equal(JsonValueKind.Object, identities.RootElement.GetProperty("identities").ValueKind);
-
-        using var storageOverview = await client.CallTool(
-            "get_storage_overview",
-            new { databaseName = fixture.DatabaseName },
-            timeout.Token);
-        Assert.Equal(JsonValueKind.Object, storageOverview.RootElement.GetProperty("report").ValueKind);
-
-        using var storageTrees = await client.CallTool(
-            "get_storage_trees",
-            new { databaseName = fixture.DatabaseName },
-            timeout.Token);
-        Assert.Equal(JsonValueKind.Object, storageTrees.RootElement.GetProperty("trees").ValueKind);
-
-        using var storageTreeStructure = await client.CallTool(
-            "get_storage_tree_structure",
-            new
-            {
-                databaseName = fixture.DatabaseName,
-                treeName = "Docs",
-                treeKind = (string?)null
-            },
-            timeout.Token);
-        Assert.NotEmpty(storageTreeStructure.RootElement.GetProperty("structure").GetString()!);
-
-        using var serverResources = await client.CallTool("get_server_resources", null, timeout.Token);
-        Assert.Equal(JsonValueKind.Object, serverResources.RootElement.GetProperty("metrics").ValueKind);
-        Assert.Equal(JsonValueKind.Object, serverResources.RootElement.GetProperty("cpu").ValueKind);
-        Assert.Equal(JsonValueKind.Object, serverResources.RootElement.GetProperty("process").ValueKind);
-        Assert.Equal(JsonValueKind.Array, serverResources.RootElement.GetProperty("threads").ValueKind);
-
-        using var tcpStats = await client.CallTool("get_tcp_stats", null, timeout.Token);
-        Assert.Equal(JsonValueKind.Object, tcpStats.RootElement.GetProperty("tcp").ValueKind);
+    private static void AssertNoSections(JsonDocument document, params string[] sections)
+    {
+        foreach (var section in sections)
+            Assert.False(document.RootElement.TryGetProperty(section, out _), $"unexpected facet section '{section}'");
     }
 
     [Fact]
@@ -266,19 +228,6 @@ public sealed class McpServerE2ETests(RavenDbTestFixture fixture)
             File.Delete(configPath);
         }
     }
-
-    private static void AssertAvailable(JsonDocument document, string propertyName)
-    {
-        var section = document.RootElement.GetProperty(propertyName);
-        Assert.True(section.GetProperty("available").GetBoolean(), $"{propertyName}: {section}");
-    }
-
-    private static void AssertAvailabilityMetadata(JsonDocument document, string propertyName)
-    {
-        var section = document.RootElement.GetProperty(propertyName);
-        Assert.True(section.GetProperty("available").ValueKind is JsonValueKind.True or JsonValueKind.False);
-    }
-
 }
 
 internal sealed class McpStdioClient : IAsyncDisposable
@@ -338,15 +287,18 @@ internal sealed class McpStdioClient : IAsyncDisposable
         };
     }
 
+    public readonly System.Text.StringBuilder Stderr = new();
+
     private static McpStdioClient StartProcess(ProcessStartInfo startInfo)
     {
         var process = Process.Start(startInfo)
             ?? throw new InvalidOperationException("Failed to start RavenDB.Mcp process.");
 
-        process.ErrorDataReceived += (_, _) => { };
+        var client = new McpStdioClient(process);
+        process.ErrorDataReceived += (_, e) => { if (e.Data is not null) lock (client.Stderr) client.Stderr.AppendLine(e.Data); };
         process.BeginErrorReadLine();
 
-        return new McpStdioClient(process);
+        return client;
     }
 
     public async Task Initialize(CancellationToken cancellationToken)
@@ -383,16 +335,27 @@ internal sealed class McpStdioClient : IAsyncDisposable
 
         var result = response.RootElement.GetProperty("result");
 
-        // Typed-result tools return structuredContent; opaque-JsonElement tools return the JSON
-        // payload as a text content block (UseStructuredContent is hybrid — see ADR).
+        var firstText = result.TryGetProperty("content", out var content)
+            && content.ValueKind == JsonValueKind.Array
+            && content.GetArrayLength() > 0
+            && content[0].TryGetProperty("text", out var textElement)
+                ? textElement.GetString()
+                : null;
+
+        // A tool that throws server-side comes back as an isError result with the message as text.
+        if (result.TryGetProperty("isError", out var isError) && isError.GetBoolean())
+        {
+            string stderr; lock (Stderr) stderr = Stderr.ToString();
+            throw new InvalidOperationException($"Tool '{name}' failed: {firstText}\nSTDERR:\n{stderr}");
+        }
+
+        // Typed-result tools return structuredContent; opaque-JsonElement/Dictionary tools return the
+        // JSON payload as a text content block (UseStructuredContent is hybrid — see ADR-0010).
         if (result.TryGetProperty("structuredContent", out var structuredContent))
             return JsonDocument.Parse(structuredContent.GetRawText());
 
-        if (result.TryGetProperty("content", out var content)
-            && content.ValueKind == JsonValueKind.Array
-            && content.GetArrayLength() > 0
-            && content[0].TryGetProperty("text", out var text))
-            return JsonDocument.Parse(text.GetString()!);
+        if (firstText is not null)
+            return JsonDocument.Parse(firstText);
 
         throw new InvalidOperationException(response.RootElement.GetRawText());
     }

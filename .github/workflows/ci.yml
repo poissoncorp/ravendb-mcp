@@ -76,11 +76,15 @@ jobs:
       - name: Start secured RavenDB
         if: matrix.security == 'secured'
         run: |
+          # The node listens on the SAME port it publishes (8443) so its self-referential cluster
+          # calls (e.g. bringing a newly-created database online) reach PublicServerUrl. Listening
+          # on 443 while advertising :8443 makes those self-calls hit a closed port -> raft commands
+          # like CreateDatabase fail with "database created but not accessible / Connection refused".
           docker run --rm --detach \
             --name ravendb-mcp-secure-test \
-            --publish 8443:443 \
+            --publish 8443:8443 \
             --volume "$PWD/certs:/certs" \
-            --env RAVEN_ServerUrl=https://0.0.0.0 \
+            --env RAVEN_ServerUrl=https://0.0.0.0:8443 \
             --env RAVEN_PublicServerUrl=https://localhost:8443 \
             --env RAVEN_Setup_Mode=None \
             --env RAVEN_Security_Certificate_Path=/certs/server.pfx \

@@ -8,40 +8,52 @@ namespace RavenDB.Mcp.Tools;
 [McpServerToolType]
 public static class ServerTools
 {
-    [McpServerTool(Name = "get_server_info", ReadOnly = true)]
-    [Description("Build/version and contacted-node info. Cheap first call. Returns product/build/commit/full version and the node's NodeInfo (server id, state, role, cores, memory, OS).")]
-    public static Task<GetServerInfoResult> GetServerInfo(
+    [McpServerTool(Name = "get_cluster_overview", ReadOnly = true)]
+    [Description("Cluster and server overview. Sections: Nodes (topology, leader, per-node tag/type/url/health), ServerInfo (build/version + contacted node), ServerDiagnostics (routes/settings/metrics/license/idle DBs), ClusterDiagnostics (observer decisions, cluster log, engine logs). Choose with include; default is Nodes + ServerInfo. For alerts/hints use get_notifications.")]
+    public static async Task<Dictionary<string, object?>> GetClusterOverview(
         RavenDbAdminClient client,
-        CancellationToken cancellationToken)
+        [Description("Sections to return; omit for Nodes + ServerInfo.")] ClusterInclude[]? include = null,
+        CancellationToken cancellationToken = default)
     {
-        return client.GetServerInfo(cancellationToken);
+        var sections = Facet.Resolve(include, ClusterInclude.Nodes, ClusterInclude.ServerInfo);
+        var result = new Dictionary<string, object?>();
+
+        if (sections.Contains(ClusterInclude.Nodes)) result["nodes"] = await client.GetClusterNodes(cancellationToken);
+        if (sections.Contains(ClusterInclude.ServerInfo)) result["serverInfo"] = await client.GetServerInfo(cancellationToken);
+        if (sections.Contains(ClusterInclude.ServerDiagnostics)) result["serverDiagnostics"] = await client.GetServerDiagnosticsOverview(cancellationToken);
+        if (sections.Contains(ClusterInclude.ClusterDiagnostics)) result["clusterDiagnostics"] = await client.GetClusterDiagnosticsOverview(cancellationToken);
+
+        return result;
     }
 
-    [McpServerTool(Name = "get_cluster_nodes", ReadOnly = true, UseStructuredContent = true)]
-    [Description("Cluster topology with per-node tag/type/url/status. Build and self info are populated for the contacted node only. Use to see cluster membership, leader, and node reachability.")]
-    public static Task<GetClusterNodesResult> GetClusterNodes(
+    [McpServerTool(Name = "get_notifications", ReadOnly = true)]
+    [Description("Active RavenDB notifications — alerts, performance hints, and operation/error notices. Omit databaseName for server-wide notifications; pass it to scope to one database. Returns the raw notification list (group/categorize client-side as needed).")]
+    public static Task<GetNotificationsResult> GetNotifications(
         RavenDbAdminClient client,
-        CancellationToken cancellationToken)
+        [Description("Database to scope to; omit for server-wide notifications.")] string? databaseName = null,
+        CancellationToken cancellationToken = default)
     {
-        return client.GetClusterNodes(cancellationToken);
+        return client.GetNotifications(databaseName, cancellationToken);
     }
 
-    [McpServerTool(Name = "get_logs_configuration", ReadOnly = true)]
-    [Description("Current server logging configuration: log mode/levels, paths, and retention settings.")]
-    public static Task<GetLogsConfigurationToolResult> GetLogsConfiguration(
+    [McpServerTool(Name = "get_server_config", ReadOnly = true)]
+    [Description("Server-scoped configuration. Sections: Logs (mode/levels/paths/retention), ClientConfig (server-wide client config pushed to all clients), TrafficWatch (capture configuration), Studio (environment banner, disabled UI features). Choose with include; default is all. For per-database configuration use get_database_config.")]
+    public static async Task<Dictionary<string, object?>> GetServerConfig(
         RavenDbAdminClient client,
-        CancellationToken cancellationToken)
+        [Description("Sections to return; omit for all.")] ServerConfigSection[]? include = null,
+        CancellationToken cancellationToken = default)
     {
-        return client.GetLogsConfiguration(cancellationToken);
-    }
+        var sections = Facet.Resolve(include,
+            ServerConfigSection.Logs, ServerConfigSection.ClientConfig,
+            ServerConfigSection.TrafficWatch, ServerConfigSection.Studio);
+        var result = new Dictionary<string, object?>();
 
-    [McpServerTool(Name = "get_server_wide_client_configuration", ReadOnly = true)]
-    [Description("Server-wide client configuration RavenDB pushes to all clients: read balance, load-balancing, and max requests per session.")]
-    public static Task<GetServerWideClientConfigurationResult> GetServerWideClientConfiguration(
-        RavenDbAdminClient client,
-        CancellationToken cancellationToken)
-    {
-        return client.GetServerWideClientConfiguration(cancellationToken);
+        if (sections.Contains(ServerConfigSection.Logs)) result["logs"] = await client.GetLogsConfiguration(cancellationToken);
+        if (sections.Contains(ServerConfigSection.ClientConfig)) result["clientConfig"] = await client.GetServerWideClientConfiguration(cancellationToken);
+        if (sections.Contains(ServerConfigSection.TrafficWatch)) result["trafficWatch"] = await client.GetTrafficWatchConfiguration(cancellationToken);
+        if (sections.Contains(ServerConfigSection.Studio)) result["studio"] = await client.GetServerStudioConfiguration(cancellationToken);
+
+        return result;
     }
 }
 

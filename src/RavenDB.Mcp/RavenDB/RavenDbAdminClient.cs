@@ -2,6 +2,8 @@ using System.Net.WebSockets;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Options;
 using Raven.Client.Documents;
 using Raven.Client.Documents.Conventions;
@@ -22,8 +24,8 @@ public sealed partial class RavenDbAdminClient(
         IncludeFields = true
     };
 
-    private readonly X509Certificate2? clientCertificate = LoadClientCertificate(options?.Value);
-    private readonly HttpClient http = CreateHttpClient(options?.Value);
+    private readonly X509Certificate2? clientCertificate = ResolveClientCertificate(store, options?.Value);
+    private readonly HttpClient http = CreateHttpClient(ResolveClientCertificate(store, options?.Value));
 
     // Raw HTTP diagnostic routes target the configured primary node by design for v1.
     // Typed Client-API calls still fail over across the cluster; raw debug/admin routes do not.
@@ -44,14 +46,111 @@ public sealed partial class RavenDbAdminClient(
         if (record is null)
             throw new InvalidOperationException($"Database '{databaseName}' was not found.");
 
-        // DatabaseRecord keeps most payload data in fields.
-        return ToJson(record);
+        return RedactSecrets(ToJson(record));
     }
 
     private MaintenanceOperationExecutor ForDatabase(string databaseName)
     {
         ValidateDatabaseName(databaseName);
         return store.Maintenance.ForDatabase(databaseName);
+    }
+
+    // Hybrid secret redaction (ADR-0011): inside the connection-string sections, mask secret fields and
+    // tokenize connection-string text (Server/Database survive); elsewhere a narrow key-name backstop
+    // catches stray secrets in unknown sections (fail-safe over fail-open).
+    private static readonly HashSet<string> SecretContainers = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "SqlConnectionStrings", "OlapConnectionStrings", "ElasticSearchConnectionStrings",
+        "QueueConnectionStrings", "RavenConnectionStrings", "AiConnectionStrings"
+    };
+
+    // Masked inside a secret container (broad — ambiguous names are safe here).
+    private static readonly HashSet<string> ScopedSecretKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Password", "Pwd", "ApiKey", "ApiKeyId", "Secret", "SecretKey", "AccessKey", "AccountKey",
+        "AwsSecretKey", "AwsAccessKey", "SasToken", "SharedAccessKey", "GoogleCredentialsJson",
+        "CertificateBase64", "Token", "AuthToken"
+    };
+
+    // Unambiguous subset — the global backstop, masked anywhere in the record.
+    private static readonly HashSet<string> GlobalSecretKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Password", "ApiKey", "SecretKey", "AccountKey", "AwsSecretKey",
+        "SasToken", "SharedAccessKey", "GoogleCredentialsJson"
+    };
+
+    // Secret tokens in connection-string text (incl. prefixed forms like sasl.password) and URL userinfo.
+    private static readonly Regex ConnectionStringSecret = new(
+        @"(?i)([\w.]*(?:password|pwd|accountkey|sharedaccesssignature|sharedaccesskey|secretkey|secret|accesskey|apikey|sig))(\s*=\s*)([^;]*)",
+        RegexOptions.Compiled);
+    private static readonly Regex UrlCredential = new(@"://([^:/?@\s]+):([^@/?\s]+)@", RegexOptions.Compiled);
+
+    private const string RedactedValue = "***redacted***";
+
+    internal static JsonElement RedactSecrets(JsonElement element)
+    {
+        var node = JsonNode.Parse(element.GetRawText());
+        RedactNode(node, inSecretContainer: false);
+        return JsonSerializer.SerializeToElement(node);
+    }
+
+    private static void RedactNode(JsonNode? node, bool inSecretContainer)
+    {
+        switch (node)
+        {
+            case JsonObject obj:
+                foreach (var property in obj.ToArray())
+                {
+                    if (property.Value is JsonValue value)
+                    {
+                        var redacted = RedactScalar(property.Key, value, inSecretContainer);
+                        if (redacted is not null)
+                            obj[property.Key] = redacted;
+                    }
+                    else
+                    {
+                        RedactNode(property.Value, inSecretContainer || SecretContainers.Contains(property.Key));
+                    }
+                }
+                break;
+            case JsonArray array:
+                for (var i = 0; i < array.Count; i++)
+                {
+                    if (array[i] is JsonValue value && value.TryGetValue(out string? text) && text is not null)
+                    {
+                        var masked = RedactInlineSecrets(text);
+                        if (!string.Equals(masked, text, StringComparison.Ordinal))
+                            array[i] = masked;
+                    }
+                    else
+                    {
+                        RedactNode(array[i], inSecretContainer);
+                    }
+                }
+                break;
+        }
+    }
+
+    // Returns the replacement value, or null to leave the scalar untouched.
+    private static string? RedactScalar(string key, JsonValue value, bool inSecretContainer)
+    {
+        var keys = inSecretContainer ? ScopedSecretKeys : GlobalSecretKeys;
+
+        if (value.TryGetValue(out string? text) && text is not null)
+        {
+            var masked = RedactInlineSecrets(text);
+            if (!string.Equals(masked, text, StringComparison.Ordinal))
+                return masked; // inline secret(s) tokenized — non-secret parts preserved
+            return keys.Contains(key) ? RedactedValue : null;
+        }
+
+        return keys.Contains(key) ? RedactedValue : null;
+    }
+
+    private static string RedactInlineSecrets(string text)
+    {
+        var masked = UrlCredential.Replace(text, match => $"://{match.Groups[1].Value}:{RedactedValue}@");
+        return ConnectionStringSecret.Replace(masked, match => $"{match.Groups[1].Value}{match.Groups[2].Value}{RedactedValue}");
     }
 
     private Task<T> ExecuteServerCommand<T>(RavenCommand<T> command, CancellationToken cancellationToken)
@@ -90,16 +189,6 @@ public sealed partial class RavenDbAdminClient(
     private Task<string> GetServerText(string path, CancellationToken cancellationToken)
     {
         return GetText(BuildServerUrl(path), cancellationToken);
-    }
-
-    private Task<string> GetDatabaseText(
-        string databaseName,
-        string path,
-        CancellationToken cancellationToken,
-        params (string Name, string? Value)[] query)
-    {
-        ValidateDatabaseName(databaseName);
-        return GetText(BuildDatabaseUrl(databaseName, path, query), cancellationToken);
     }
 
     private async Task<JsonElement> GetJson(string url, CancellationToken cancellationToken)
@@ -181,13 +270,22 @@ public sealed partial class RavenDbAdminClient(
             : DocumentStoreFactory.LoadCertificate(options);
     }
 
-    private static HttpClient CreateHttpClient(RavenDbOptions? options)
+    // The raw HTTP/WebSocket stack must authenticate with the SAME client certificate as the typed
+    // store, or every raw route 403s against a secured server. Prefer an explicitly-configured
+    // certificate, but fall back to the one the store already uses — most call sites construct this
+    // client from just a store (the store carries the effective certificate).
+    private static X509Certificate2? ResolveClientCertificate(IDocumentStore store, RavenDbOptions? options)
     {
-        var certificate = LoadClientCertificate(options);
+        return LoadClientCertificate(options) ?? store.Certificate;
+    }
+
+    private static HttpClient CreateHttpClient(X509Certificate2? certificate)
+    {
         if (certificate is null)
             return new HttpClient { Timeout = TimeSpan.FromSeconds(60) };
 
-        var handler = new HttpClientHandler();
+        // Manual: present exactly this certificate, rather than searching the user's store.
+        var handler = new HttpClientHandler { ClientCertificateOptions = ClientCertificateOption.Manual };
         handler.ClientCertificates.Add(certificate);
         return new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(60) };
     }

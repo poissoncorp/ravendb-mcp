@@ -8,39 +8,35 @@ namespace RavenDB.Mcp.Tools;
 [McpServerToolType]
 public static class IndexTools
 {
-    [McpServerTool(Name = "get_indexing_overview", ReadOnly = true)]
-    [Description("One-call indexing snapshot for a database: index summaries, stats, errors, indexing status, performance, progress, suggested merges, and total indexing time.")]
-    public static Task<GetIndexingOverviewResult> GetIndexingOverview(
-        RavenDbAdminClient client,
-        string databaseName,
-        CancellationToken cancellationToken)
-    {
-        return client.GetIndexingOverview(databaseName, cancellationToken);
-    }
-
     [McpServerTool(Name = "get_index", ReadOnly = true)]
-    [Description("Full definition of one index: maps/reduce, fields, configuration, lock mode, and deployment mode.")]
-    public static Task<GetIndexResult> GetIndex(
+    [Description("One index, multiple views. Sections: Definition (maps/reduce, fields, config, lock/deployment mode), Staleness (is it stale and why), Debug (internal debug view + metadata + history), Terms (distinct indexed terms for fieldName, paged), Errors (this index's indexing errors), Performance (this index's performance stats). Choose with include; default is Definition + Staleness. Terms requires fieldName. For an all-indexes view use get_database_stats with the indexing section.")]
+    public static async Task<Dictionary<string, object?>> GetIndex(
         RavenDbAdminClient client,
-        string databaseName,
-        string indexName,
-        CancellationToken cancellationToken)
+        [Description("Database the index belongs to.")] string databaseName,
+        [Description("Index name.")] string indexName,
+        [Description("Sections to return; omit for Definition + Staleness.")] IndexInclude[]? include = null,
+        [Description("Field name — required for the Terms section.")] string? fieldName = null,
+        [Description("Terms paging: return terms after this value.")] string? fromValue = null,
+        [Description("Terms paging: max terms to return.")] int? pageSize = null,
+        CancellationToken cancellationToken = default)
     {
-        return client.GetIndex(databaseName, indexName, cancellationToken);
-    }
+        var sections = Facet.Resolve(include, IndexInclude.Definition, IndexInclude.Staleness);
+        var result = new Dictionary<string, object?>();
 
-    [McpServerTool(Name = "get_index_terms", ReadOnly = true)]
-    [Description("Distinct indexed terms for one field of an index (paged from fromValue). Use to inspect how a field is tokenized/indexed.")]
-    public static Task<GetIndexTermsResult> GetIndexTerms(
-        RavenDbAdminClient client,
-        string databaseName,
-        string indexName,
-        string fieldName,
-        string? fromValue,
-        int? pageSize,
-        CancellationToken cancellationToken)
-    {
-        return client.GetIndexTerms(databaseName, indexName, fieldName, fromValue, pageSize, cancellationToken);
+        if (sections.Contains(IndexInclude.Definition))
+            result["definition"] = await client.GetIndex(databaseName, indexName, cancellationToken);
+        if (sections.Contains(IndexInclude.Staleness))
+            result["staleness"] = await client.GetIndexStaleness(databaseName, indexName, cancellationToken);
+        if (sections.Contains(IndexInclude.Debug))
+            result["debug"] = await client.GetIndexDebugDetails(databaseName, indexName, cancellationToken);
+        if (sections.Contains(IndexInclude.Terms))
+            result["terms"] = await client.GetIndexTerms(databaseName, indexName, Facet.Require(fieldName, "fieldName", "Terms"), fromValue, pageSize, cancellationToken);
+        if (sections.Contains(IndexInclude.Errors))
+            result["errors"] = await client.GetIndexErrors(databaseName, indexName, cancellationToken);
+        if (sections.Contains(IndexInclude.Performance))
+            result["performance"] = await client.GetIndexPerformance(databaseName, indexName, cancellationToken);
+
+        return result;
     }
 }
 

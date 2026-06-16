@@ -42,6 +42,28 @@ public sealed partial class RavenDbAdminClient
         return new GetIndexPerformanceResult(databaseName, ToJson(performance));
     }
 
+    public async Task<GetIndexErrorsResult> GetIndexErrors(string databaseName, string indexName, CancellationToken cancellationToken)
+    {
+        ValidateName(indexName, "Index name", nameof(indexName));
+
+        var errors = await ForDatabase(databaseName).SendAsync(
+            new GetIndexErrorsOperation([indexName]),
+            token: cancellationToken);
+
+        return new GetIndexErrorsResult(databaseName, ToJson(errors));
+    }
+
+    public async Task<GetIndexPerformanceResult> GetIndexPerformance(string databaseName, string indexName, CancellationToken cancellationToken)
+    {
+        ValidateName(indexName, "Index name", nameof(indexName));
+
+        var performance = await ForDatabase(databaseName).SendAsync(
+            new GetIndexPerformanceStatisticsOperation([indexName]),
+            token: cancellationToken);
+
+        return new GetIndexPerformanceResult(databaseName, ToJson(performance));
+    }
+
     public async Task<GetIndexingStatusResult> GetIndexingStatus(string databaseName, CancellationToken cancellationToken)
     {
         var status = await ForDatabase(databaseName).SendAsync(

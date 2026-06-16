@@ -57,17 +57,6 @@ public sealed class DataAndShapeTests(RavenDbTestFixture fixture)
     }
 
     [Fact]
-    public async Task QueryMetadataOnlyExposesParsedShapeWithoutRows()
-    {
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-
-        var metadata = (await NewClient().QueryMetadataOnly(fixture.DatabaseName, "from TestUsers", 0, cts.Token)).Metadata;
-
-        Assert.Equal(JsonValueKind.Number, metadata.GetProperty("TotalResults").ValueKind);
-        Assert.False(metadata.TryGetProperty("Results", out _));
-    }
-
-    [Fact]
     public async Task WaitForIndexingCompletesUsingTypedStatistics()
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
@@ -83,8 +72,8 @@ public sealed class DataAndShapeTests(RavenDbTestFixture fixture)
     {
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
 
-        // sample_runtime_events streams over a plain GET (unlike the WebSocket-only *_watch endpoints).
-        var sample = await NewClient().SampleRuntimeEvents("gc", 1, cts.Token);
+        // GC events stream over a plain GET (unlike the WebSocket-only *_watch endpoints).
+        var sample = await NewClient().SampleGcEvents(1, cts.Token);
 
         Assert.Equal(131_072, sample.Limit);
         Assert.False(sample.Truncated);

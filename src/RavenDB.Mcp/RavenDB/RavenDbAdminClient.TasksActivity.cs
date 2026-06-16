@@ -1,4 +1,3 @@
-using Raven.Client.Documents.Operations.Backups;
 using Raven.Client.Documents.Operations.Identities;
 using Raven.Client.Documents.Operations;
 using Raven.Client.Documents.Operations.OngoingTasks;
@@ -116,21 +115,6 @@ public sealed partial class RavenDbAdminClient
         return new GetEtlTasksResult(databaseName, SelectRecordProperties(record, "etl"));
     }
 
-    public async Task<GetBackupStatusResult> GetBackupStatus(
-        string databaseName,
-        long taskId,
-        CancellationToken cancellationToken)
-    {
-        var status = await ForDatabase(databaseName).SendAsync(
-            new GetPeriodicBackupStatusOperation(taskId),
-            token: cancellationToken);
-
-        return new GetBackupStatusResult(
-            databaseName,
-            taskId,
-            ToJson(status));
-    }
-
     public async Task<GetOngoingTaskInfoResult> GetOngoingTaskInfo(
         string databaseName,
         long taskId,
@@ -146,21 +130,6 @@ public sealed partial class RavenDbAdminClient
             taskId,
             taskType.ToString(),
             ToJson(task));
-    }
-
-    public async Task<GetEtlTaskInfoResult> GetEtlTaskInfo(
-        string databaseName,
-        long taskId,
-        OngoingTaskType taskType,
-        CancellationToken cancellationToken)
-    {
-        var task = await GetOngoingTaskInfo(databaseName, taskId, taskType, cancellationToken);
-
-        return new GetEtlTaskInfoResult(
-            task.DatabaseName,
-            task.TaskId,
-            task.TaskType,
-            task.Task);
     }
 
     public async Task<GetSubscriptionsResult> GetSubscriptions(

@@ -1,23 +1,6 @@
-using System.ComponentModel;
 using System.Text.Json;
-using ModelContextProtocol.Server;
-using RavenDB.Mcp.RavenDB;
 
 namespace RavenDB.Mcp.Tools;
-
-[McpServerToolType]
-public static class ReplicationTools
-{
-    [McpServerTool(Name = "get_replication_tasks_details", ReadOnly = true)]
-    [Description("Replication diagnostics for a database: configured replication tasks, performance, active connections, conflicts, outgoing/incoming failures, rejections, reconnect queue, and progress.")]
-    public static Task<GetReplicationTasksDetailsResult> GetReplicationTasksDetails(
-        RavenDbAdminClient client,
-        string databaseName,
-        CancellationToken cancellationToken)
-    {
-        return client.GetReplicationTasksDetails(databaseName, cancellationToken);
-    }
-}
 
 public sealed record GetReplicationTasksResult(string DatabaseName, JsonElement Tasks);
 

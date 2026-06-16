@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Raven.Client.Documents.Operations;
 using Raven.Client.Documents.Operations.Configuration;
 using Raven.Client.ServerWide.Operations;
@@ -76,28 +77,6 @@ public sealed partial class RavenDbAdminClient
             (await detailedStatsTask).Stats);
     }
 
-    public async Task<GetDatabaseOverviewResult> GetDatabaseOverview(
-        string databaseName,
-        CancellationToken cancellationToken)
-    {
-        var statsTask = GetDatabaseStats(databaseName, cancellationToken);
-        var detailedStatsTask = GetDetailedDatabaseStats(databaseName, cancellationToken);
-        var indexingStatusTask = GetIndexingStatus(databaseName, cancellationToken);
-        var indexStatsTask = GetIndexStats(databaseName, cancellationToken);
-        var indexErrorsTask = GetIndexErrors(databaseName, cancellationToken);
-        var tasksTask = GetDatabaseTasks(databaseName, cancellationToken);
-        await Task.WhenAll(statsTask, detailedStatsTask, indexingStatusTask, indexStatsTask, indexErrorsTask, tasksTask);
-
-        return new GetDatabaseOverviewResult(
-            databaseName,
-            (await statsTask).Stats,
-            (await detailedStatsTask).Stats,
-            (await indexingStatusTask).Status,
-            (await indexStatsTask).Stats,
-            (await indexErrorsTask).Errors,
-            (await tasksTask).Tasks);
-    }
-
     public async Task<GetDatabaseConfigurationResult> GetDatabaseConfiguration(string databaseName, CancellationToken cancellationToken)
     {
         var configuration = await ForDatabase(databaseName).SendAsync(
@@ -114,5 +93,31 @@ public sealed partial class RavenDbAdminClient
             token: cancellationToken);
 
         return new GetClientConfigurationResult(databaseName, ToJson(configuration));
+    }
+
+    // The studio-config route 404s until set; availability-wrapped.
+    public Task<JsonElement> GetDatabaseStudioConfiguration(string databaseName, CancellationToken cancellationToken)
+    {
+        ValidateDatabaseName(databaseName);
+        return TryGetDatabaseJson(databaseName, "/configuration/studio", cancellationToken);
+    }
+
+    // No typed op; availability-wrapped (e.g. sharding state only exists on sharded databases).
+    public Task<JsonElement> GetTombstonesState(string databaseName, CancellationToken cancellationToken)
+    {
+        ValidateDatabaseName(databaseName);
+        return TryGetDatabaseJson(databaseName, "/admin/tombstones/state", cancellationToken);
+    }
+
+    public Task<JsonElement> GetDatabaseMetrics(string databaseName, CancellationToken cancellationToken)
+    {
+        ValidateDatabaseName(databaseName);
+        return TryGetDatabaseJson(databaseName, "/metrics", cancellationToken);
+    }
+
+    public Task<JsonElement> GetShardingState(string databaseName, CancellationToken cancellationToken)
+    {
+        ValidateDatabaseName(databaseName);
+        return TryGetDatabaseJson(databaseName, "/debug/sharding/buckets", cancellationToken);
     }
 }
