@@ -142,32 +142,6 @@ public sealed partial class RavenDbAdminClient
         return new GetPerformanceOverviewResult(await GetServerJson("/admin/metrics", cancellationToken));
     }
 
-    public async Task<GetServerResourcesResult> GetServerResources(CancellationToken cancellationToken)
-    {
-        var metricsTask = GetPerformanceOverview(cancellationToken);
-        var cpuTask = GetCpuStats(cancellationToken);
-        var ioTask = GetIoStats(null, cancellationToken);
-        var gcTask = GetGcMemoryStats(cancellationToken);
-        var memoryTask = GetOsMemoryStats(cancellationToken);
-        var processTask = GetProcessStats(cancellationToken);
-
-        await Task.WhenAll(metricsTask, cpuTask, ioTask, gcTask, memoryTask, processTask);
-
-        var memory = (await memoryTask).Memory;
-        var threads = memory.TryGetProperty("Threads", out var threadsValue)
-            ? threadsValue.Clone()
-            : ToJson(new { available = false, reason = "Threads not present in memory stats." });
-
-        return new GetServerResourcesResult(
-            (await metricsTask).Metrics,
-            (await cpuTask).Cpu,
-            (await ioTask).Io,
-            (await gcTask).Gc,
-            memory,
-            (await processTask).Process,
-            threads);
-    }
-
     public async Task<GetCpuStatsResult> GetCpuStats(CancellationToken cancellationToken)
     {
         return new GetCpuStatsResult(await GetServerJson("/admin/debug/cpu/stats", cancellationToken));

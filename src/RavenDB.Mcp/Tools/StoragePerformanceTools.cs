@@ -63,40 +63,29 @@ public static class StoragePerformanceTools
     }
 
     [McpServerTool(Name = "get_server_resources", ReadOnly = true)]
-    [Description("Server resource snapshot: metrics, CPU, IO, GC, OS memory, process, and thread stats. Use for a quick host-health read.")]
-    public static Task<GetServerResourcesResult> GetServerResources(
+    [Description("Host/runtime resource snapshot. Sections: Metrics, Cpu, Io, Gc, Memory (includes threads), Process, LowMemoryLog, EncryptionBufferPool, StackTraces, ScriptRunners. Choose with include; default is the core set (Metrics, Cpu, Io, Gc, Memory, Process). Use for host-health and runtime investigation.")]
+    public static async Task<Dictionary<string, object?>> GetServerResources(
         RavenDbAdminClient client,
+        [Description("Sections to return; omit for the core set (metrics, cpu, io, gc, memory, process).")] ResourceInclude[]? include,
         CancellationToken cancellationToken)
     {
-        return client.GetServerResources(cancellationToken);
-    }
+        var sections = Facet.Resolve(include,
+            ResourceInclude.Metrics, ResourceInclude.Cpu, ResourceInclude.Io,
+            ResourceInclude.Gc, ResourceInclude.Memory, ResourceInclude.Process);
+        var result = new Dictionary<string, object?>();
 
-    [McpServerTool(Name = "get_io_stats", ReadOnly = true)]
-    [Description("Disk IO metrics. Omit databaseName for server-wide IO; provide it for that database's IO. Returns read/write rates and latencies per environment/file.")]
-    public static Task<GetIoStatsResult> GetIoStats(
-        RavenDbAdminClient client,
-        string? databaseName,
-        CancellationToken cancellationToken)
-    {
-        return client.GetIoStats(databaseName, cancellationToken);
-    }
+        if (sections.Contains(ResourceInclude.Metrics)) result["metrics"] = await client.GetPerformanceOverview(cancellationToken);
+        if (sections.Contains(ResourceInclude.Cpu)) result["cpu"] = await client.GetCpuStats(cancellationToken);
+        if (sections.Contains(ResourceInclude.Io)) result["io"] = await client.GetIoStats(null, cancellationToken);
+        if (sections.Contains(ResourceInclude.Gc)) result["gc"] = await client.GetGcMemoryStats(cancellationToken);
+        if (sections.Contains(ResourceInclude.Memory)) result["memory"] = await client.GetOsMemoryStats(cancellationToken);
+        if (sections.Contains(ResourceInclude.Process)) result["process"] = await client.GetProcessStats(cancellationToken);
+        if (sections.Contains(ResourceInclude.LowMemoryLog)) result["lowMemoryLog"] = await client.GetLowMemoryLog(cancellationToken);
+        if (sections.Contains(ResourceInclude.EncryptionBufferPool)) result["encryptionBufferPool"] = await client.GetEncryptionBufferPoolStats(cancellationToken);
+        if (sections.Contains(ResourceInclude.StackTraces)) result["stackTraces"] = await client.GetStackTraces(cancellationToken);
+        if (sections.Contains(ResourceInclude.ScriptRunners)) result["scriptRunners"] = await client.GetScriptRunners(null, cancellationToken);
 
-    [McpServerTool(Name = "get_low_memory_log", ReadOnly = true)]
-    [Description("Server low-memory event log: recent low-memory triggers and the actions RavenDB took. Use to diagnose memory pressure.")]
-    public static Task<GetLowMemoryLogResult> GetLowMemoryLog(
-        RavenDbAdminClient client,
-        CancellationToken cancellationToken)
-    {
-        return client.GetLowMemoryLog(cancellationToken);
-    }
-
-    [McpServerTool(Name = "get_encryption_buffer_pool_stats", ReadOnly = true)]
-    [Description("Encryption buffer-pool stats (relevant for encrypted databases): allocated/used secure buffers.")]
-    public static Task<GetEncryptionBufferPoolStatsResult> GetEncryptionBufferPoolStats(
-        RavenDbAdminClient client,
-        CancellationToken cancellationToken)
-    {
-        return client.GetEncryptionBufferPoolStats(cancellationToken);
+        return result;
     }
 
     [McpServerTool(Name = "sample_runtime_events", ReadOnly = true, UseStructuredContent = true)]
@@ -119,25 +108,6 @@ public static class StoragePerformanceTools
         CancellationToken cancellationToken)
     {
         return client.SampleThreadDiagnostics(kind, seconds, cancellationToken);
-    }
-
-    [McpServerTool(Name = "get_stack_traces", ReadOnly = true)]
-    [Description("Managed stack traces of the server's threads. Use to investigate hangs or busy threads.")]
-    public static Task<GetStackTracesResult> GetStackTraces(
-        RavenDbAdminClient client,
-        CancellationToken cancellationToken)
-    {
-        return client.GetStackTraces(cancellationToken);
-    }
-
-    [McpServerTool(Name = "get_script_runners", ReadOnly = true)]
-    [Description("JavaScript script-runner pool stats (patches, ETL/subscription scripts). Omit databaseName for server-wide, or pass it for one database.")]
-    public static Task<GetScriptRunnersResult> GetScriptRunners(
-        RavenDbAdminClient client,
-        string? databaseName,
-        CancellationToken cancellationToken)
-    {
-        return client.GetScriptRunners(databaseName, cancellationToken);
     }
 
     [McpServerTool(Name = "get_network_details", ReadOnly = true)]
@@ -207,15 +177,6 @@ public sealed record GetStorageFreeSpaceSnapshotResult(
     JsonElement FreeSpace);
 
 public sealed record GetPerformanceOverviewResult(JsonElement Metrics);
-
-public sealed record GetServerResourcesResult(
-    JsonElement Metrics,
-    JsonElement Cpu,
-    JsonElement Io,
-    JsonElement Gc,
-    JsonElement Memory,
-    JsonElement Process,
-    JsonElement Threads);
 
 public sealed record GetCpuStatsResult(JsonElement Cpu);
 

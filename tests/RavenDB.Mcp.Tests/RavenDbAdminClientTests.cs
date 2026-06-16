@@ -112,14 +112,11 @@ public sealed class RavenDbAdminClientTests(RavenDbTestFixture fixture)
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
         var client = new RavenDbAdminClient(fixture.Store);
 
-        var resources = await client.GetServerResources(timeout.Token);
-        Assert.Equal(JsonValueKind.Object, resources.Metrics.ValueKind);
-        Assert.Equal(JsonValueKind.Object, resources.Cpu.ValueKind);
-        Assert.Equal(JsonValueKind.Object, resources.Io.ValueKind);
-        Assert.Equal(JsonValueKind.Object, resources.Gc.ValueKind);
-        Assert.Equal(JsonValueKind.Object, resources.Memory.ValueKind);
-        Assert.Equal(JsonValueKind.Object, resources.Process.ValueKind);
-        Assert.Equal(JsonValueKind.Array, resources.Threads.ValueKind);
+        Assert.Equal(JsonValueKind.Object, (await client.GetPerformanceOverview(timeout.Token)).Metrics.ValueKind);
+        Assert.Equal(JsonValueKind.Object, (await client.GetCpuStats(timeout.Token)).Cpu.ValueKind);
+        Assert.Equal(JsonValueKind.Object, (await client.GetGcMemoryStats(timeout.Token)).Gc.ValueKind);
+        Assert.Equal(JsonValueKind.Object, (await client.GetOsMemoryStats(timeout.Token)).Memory.ValueKind);
+        Assert.Equal(JsonValueKind.Object, (await client.GetProcessStats(timeout.Token)).Process.ValueKind);
 
         Assert.Equal(JsonValueKind.Object, (await client.GetIoStats(null, timeout.Token)).Io.ValueKind);
         Assert.Equal(JsonValueKind.Object, (await client.GetIoStats(fixture.DatabaseName, timeout.Token)).Io.ValueKind);

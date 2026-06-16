@@ -40,6 +40,21 @@ public enum NetworkFacet
     DatabaseInfo
 }
 
+/// <summary>Host/runtime sections returned by <c>get_server_resources</c>.</summary>
+public enum ResourceInclude
+{
+    Metrics,
+    Cpu,
+    Io,
+    Gc,
+    Memory,
+    Process,
+    LowMemoryLog,
+    EncryptionBufferPool,
+    StackTraces,
+    ScriptRunners
+}
+
 /// <summary>Shared helpers for parameterized facet tools.</summary>
 internal static class Facet
 {
