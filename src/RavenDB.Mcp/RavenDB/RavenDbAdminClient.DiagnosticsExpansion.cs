@@ -124,12 +124,22 @@ public sealed partial class RavenDbAdminClient
     {
         Directory.CreateDirectory(artifactsPath);
 
-        var fileName = $"{DateTime.UtcNow:yyyyMMddHHmmssfff}-{SanitizeFileName(name)}.bin";
+        var fileName = $"{DateTime.UtcNow:yyyyMMddHHmmssfff}-{SanitizeFileName(name)}{ExtensionFor(content.ContentType)}";
         var path = Path.Combine(artifactsPath, fileName);
         await File.WriteAllBytesAsync(path, content.Bytes, cancellationToken);
 
         return new DiagnosticArtifactResult(path, content.ContentType, content.Bytes.LongLength);
     }
+
+    // Name the artifact for what it actually is, so the returned path is directly openable
+    // (RavenDB returns debug packages as zip and database packages as JSON).
+    private static string ExtensionFor(string contentType) => contentType switch
+    {
+        "application/zip" => ".zip",
+        "application/json" => ".json",
+        "text/plain" => ".txt",
+        _ => ".bin",
+    };
 
     private static string SanitizeFileName(string value)
     {

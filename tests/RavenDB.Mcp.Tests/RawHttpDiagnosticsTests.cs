@@ -46,8 +46,27 @@ public sealed class RawHttpDiagnosticsTests
 
         Assert.StartsWith(artifactsPath, result.Path);
         Assert.Equal("text/plain", result.ContentType);
+        Assert.EndsWith(".txt", result.Path); // named for its content type, not a generic .bin
         Assert.Equal("admin log line".Length, result.Bytes);
         Assert.Equal("admin log line", await File.ReadAllTextAsync(result.Path));
+    }
+
+    [Fact]
+    public async Task ArtifactFileExtensionMatchesContentType()
+    {
+        var artifactsPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        await using var server = new FakeRavenHttpServer();
+        server.Json("/databases/Test/debug/info-package", """{ "ok": true }""");
+
+        using var store = new DocumentStore { Urls = [server.Url] };
+        var client = new RavenDbAdminClient(
+            store,
+            Options.Create(new RavenDbOptions { Urls = [server.Url], ArtifactsPath = artifactsPath }));
+
+        var result = await client.CollectDatabaseInfoPackage("Test", CancellationToken.None);
+
+        Assert.Equal("application/json", result.ContentType);
+        Assert.EndsWith(".json", result.Path); // a JSON package is *.json, not *.bin
     }
 
 }
