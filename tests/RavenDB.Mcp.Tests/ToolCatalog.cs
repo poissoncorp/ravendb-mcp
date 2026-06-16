@@ -22,6 +22,7 @@ internal static class ToolCatalog
         "get_server_resources",
         "get_tasks",
         "inspect_storage",
+        "list_compare_exchange",
         "list_databases",
         "query_metadata_only",
         "run_query",

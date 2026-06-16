@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Raven.Client.Documents;
+using Raven.Client.Documents.Operations.CompareExchange;
 using Raven.Client.Documents.Operations.Counters;
 using Raven.Client.Documents.Operations.TimeSeries;
 using RavenDB.Mcp.Tools;
@@ -73,6 +74,21 @@ public sealed partial class RavenDbAdminClient
             token: cancellationToken);
 
         return ToJson(series);
+    }
+
+    public async Task<JsonElement> GetCompareExchange(
+        string databaseName,
+        string? startsWith,
+        int? pageSize,
+        CancellationToken cancellationToken)
+    {
+        ValidateDatabaseName(databaseName);
+
+        var values = await store.Operations.ForDatabase(databaseName).SendAsync(
+            new GetCompareExchangeValuesOperation<object>(startsWith ?? string.Empty, 0, Math.Clamp(pageSize ?? 100, 1, 1024)),
+            token: cancellationToken);
+
+        return ToJson(values);
     }
 
     public async Task<RunQueryResult> RunQuery(

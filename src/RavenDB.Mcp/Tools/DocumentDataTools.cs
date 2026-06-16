@@ -67,6 +67,18 @@ public static class DocumentDataTools
     {
         return client.RunQuery(databaseName, query, start, pageSize, cancellationToken);
     }
+
+    [McpServerTool(Name = "list_compare_exchange", ReadOnly = true)]
+    [Description("List cluster-wide compare-exchange (cmpxchg) key/value entries — used for atomic guards, unique constraints, and cluster-transaction state. Optional startsWith key prefix; paged (1-1024, default 100). Not document-scoped.")]
+    public static Task<JsonElement> ListCompareExchange(
+        RavenDbAdminClient client,
+        string databaseName,
+        [Description("Only return keys starting with this prefix.")] string? startsWith,
+        [Description("Max entries to return, 1-1024 (default 100).")] int? pageSize,
+        CancellationToken cancellationToken)
+    {
+        return client.GetCompareExchange(databaseName, startsWith, pageSize, cancellationToken);
+    }
 }
 
 public sealed record GetDocumentResult(string DatabaseName, string Id, bool Found, JsonElement Document);
