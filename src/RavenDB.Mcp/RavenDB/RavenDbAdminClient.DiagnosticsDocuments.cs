@@ -14,13 +14,6 @@ public sealed partial class RavenDbAdminClient
             await GetDatabaseJson(databaseName, "/debug/documents/huge", cancellationToken));
     }
 
-    public Task<DiagnosticArtifactResult> ScanCorruptedDocumentIds(
-        string databaseName,
-        CancellationToken cancellationToken)
-    {
-        return SaveDatabaseArtifact(databaseName, "corrupted-document-ids", "/debug/documents/scan-corrupted-ids", cancellationToken);
-    }
-
     public async Task<GetDocumentRevisionsResult> GetDocumentRevisions(
         string databaseName,
         string documentId,
@@ -40,21 +33,6 @@ public sealed partial class RavenDbAdminClient
                 ("id", documentId),
                 ("start", Math.Max(start ?? 0, 0).ToString()),
                 ("pageSize", Math.Clamp(pageSize ?? 25, 1, 1024).ToString())));
-    }
-
-    public Task<DiagnosticArtifactResult> FindMissingAttachments(
-        string databaseName,
-        string collectionName,
-        CancellationToken cancellationToken)
-    {
-        ValidateName(collectionName, "Collection name", nameof(collectionName));
-
-        return SaveDatabaseArtifact(
-            databaseName,
-            "missing-attachments",
-            "/debug/attachments/missing",
-            cancellationToken,
-            ("collection", collectionName));
     }
 
     public async Task<GetRevisionsCollectionStatsResult> GetRevisionsCollectionStats(

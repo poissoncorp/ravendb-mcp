@@ -7,7 +7,6 @@ internal static class ToolCatalog
         "collect_debug_package",
         "collect_diagnostic_snapshot",
         "export_server_logs",
-        "find_missing_attachments",
         "get_ai_agents",
         "get_cluster_overview",
         "get_database_config",
@@ -25,7 +24,6 @@ internal static class ToolCatalog
         "list_databases",
         "run_query",
         "sample_live_feed",
-        "scan_corrupted_document_ids",
         "wait_for_completion"
     ];
 }

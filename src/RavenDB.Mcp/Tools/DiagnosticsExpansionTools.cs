@@ -60,27 +60,6 @@ public static class DiagnosticsExpansionTools
         return client.ExportLogs(from, to, cancellationToken);
     }
 
-    [McpServerTool(Name = "scan_corrupted_document_ids", ReadOnly = true, UseStructuredContent = true)]
-    [Description("Scan a database for corrupted document ids and write the result to a local artifact file. Returns the artifact path, content type, and byte size.")]
-    public static Task<DiagnosticArtifactResult> ScanCorruptedDocumentIds(
-        RavenDbAdminClient client,
-        string databaseName,
-        CancellationToken cancellationToken)
-    {
-        return client.ScanCorruptedDocumentIds(databaseName, cancellationToken);
-    }
-
-    [McpServerTool(Name = "find_missing_attachments", ReadOnly = true, UseStructuredContent = true)]
-    [Description("Scan one collection for attachments referenced by documents but missing from storage, writing results to a local artifact file. 'collectionName' is required (e.g. 'Users'). Returns the artifact path, content type, and byte size.")]
-    public static Task<DiagnosticArtifactResult> FindMissingAttachments(
-        RavenDbAdminClient client,
-        string databaseName,
-        string collectionName,
-        CancellationToken cancellationToken)
-    {
-        return client.FindMissingAttachments(databaseName, collectionName, cancellationToken);
-    }
-
     [McpServerTool(Name = "collect_debug_package", ReadOnly = true, UseStructuredContent = true)]
     [Description("Download a RavenDB debug/support package (zip) to a local artifact file. scope=Server (this node), Cluster (cluster-wide), or Database (one database — needs databaseName). Returns the artifact path, content type, and byte size. Heavy; for deep support investigations.")]
     public static Task<DiagnosticArtifactResult> CollectDebugPackage(
