@@ -4,10 +4,8 @@ internal static class ToolCatalog
 {
     public static readonly string[] ExpectedToolNames =
     [
-        "collect_cluster_info_package",
-        "collect_database_info_package",
+        "collect_debug_package",
         "collect_diagnostic_snapshot",
-        "collect_server_info_package",
         "export_document_ids",
         "export_logs",
         "find_missing_attachments",

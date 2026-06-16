@@ -269,32 +269,21 @@ public static class DiagnosticsExpansionTools
         return client.QueryMetadataOnly(databaseName, query, pageSize, cancellationToken);
     }
 
-    [McpServerTool(Name = "collect_server_info_package", ReadOnly = true, UseStructuredContent = true)]
-    [Description("Download RavenDB's full server info/debug package (zip) to a local artifact file. Returns the artifact path, content type, and byte size. Heavy; for deep support investigations.")]
-    public static Task<DiagnosticArtifactResult> CollectServerInfoPackage(
+    [McpServerTool(Name = "collect_debug_package", ReadOnly = true, UseStructuredContent = true)]
+    [Description("Download a RavenDB debug/support package (zip) to a local artifact file. scope=Server (this node), Cluster (cluster-wide), or Database (one database — needs databaseName). Returns the artifact path, content type, and byte size. Heavy; for deep support investigations.")]
+    public static Task<DiagnosticArtifactResult> CollectDebugPackage(
         RavenDbAdminClient client,
+        [Description("Which package to collect: Server, Cluster, or Database.")] PackageScope scope,
+        [Description("Database to package — required when scope is Database.")] string? databaseName,
         CancellationToken cancellationToken)
     {
-        return client.CollectServerInfoPackage(cancellationToken);
-    }
-
-    [McpServerTool(Name = "collect_cluster_info_package", ReadOnly = true, UseStructuredContent = true)]
-    [Description("Download RavenDB's cluster-wide info/debug package (zip) to a local artifact file. Returns the artifact path, content type, and byte size. Heavy; for deep support investigations.")]
-    public static Task<DiagnosticArtifactResult> CollectClusterInfoPackage(
-        RavenDbAdminClient client,
-        CancellationToken cancellationToken)
-    {
-        return client.CollectClusterInfoPackage(cancellationToken);
-    }
-
-    [McpServerTool(Name = "collect_database_info_package", ReadOnly = true, UseStructuredContent = true)]
-    [Description("Download one database's info/debug package (zip) to a local artifact file. Returns the artifact path, content type, and byte size.")]
-    public static Task<DiagnosticArtifactResult> CollectDatabaseInfoPackage(
-        RavenDbAdminClient client,
-        string databaseName,
-        CancellationToken cancellationToken)
-    {
-        return client.CollectDatabaseInfoPackage(databaseName, cancellationToken);
+        return scope switch
+        {
+            PackageScope.Server => client.CollectServerInfoPackage(cancellationToken),
+            PackageScope.Cluster => client.CollectClusterInfoPackage(cancellationToken),
+            PackageScope.Database => client.CollectDatabaseInfoPackage(Facet.RequireDatabase(databaseName, "Database"), cancellationToken),
+            _ => throw new ArgumentOutOfRangeException(nameof(scope))
+        };
     }
 
     [McpServerTool(Name = "collect_diagnostic_snapshot", ReadOnly = true)]

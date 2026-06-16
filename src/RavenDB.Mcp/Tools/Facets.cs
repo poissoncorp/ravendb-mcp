@@ -55,6 +55,19 @@ public enum ResourceInclude
     ScriptRunners
 }
 
+/// <summary>Which debug package <c>collect_debug_package</c> downloads.</summary>
+public enum PackageScope
+{
+    /// <summary>This node's full server debug package.</summary>
+    Server,
+
+    /// <summary>Cluster-wide debug package.</summary>
+    Cluster,
+
+    /// <summary>One database's debug package (needs databaseName).</summary>
+    Database
+}
+
 /// <summary>Shared helpers for parameterized facet tools.</summary>
 internal static class Facet
 {
