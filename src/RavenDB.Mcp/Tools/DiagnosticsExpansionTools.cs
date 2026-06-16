@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using ModelContextProtocol;
 using ModelContextProtocol.Server;
 using RavenDB.Mcp.RavenDB;
 
@@ -43,7 +44,7 @@ public static class DiagnosticsExpansionTools
         {
             WaitCondition.Operation => operationId is { } id
                 ? client.WaitForOperation(databaseName, id, timeoutSeconds, cancellationToken)
-                : throw new ArgumentException("operationId is required when condition is Operation.", nameof(operationId)),
+                : throw new McpException("operationId is required when condition is Operation."),
             WaitCondition.Indexing => client.WaitForIndexing(databaseName, timeoutSeconds, cancellationToken),
             _ => throw new ArgumentOutOfRangeException(nameof(condition))
         };

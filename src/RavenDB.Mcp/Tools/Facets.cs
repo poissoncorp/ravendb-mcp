@@ -1,3 +1,5 @@
+using ModelContextProtocol;
+
 namespace RavenDB.Mcp.Tools;
 
 // Selector enums for parameterized facet tools (ADR-0010). The MCP SDK maps each enum to a
@@ -242,10 +244,14 @@ internal static class Facet
     public static HashSet<T> Resolve<T>(T[]? requested, params T[] defaults) where T : struct, Enum
         => new(requested is { Length: > 0 } ? requested : defaults);
 
-    /// <summary>Guard a required argument for a facet section.</summary>
+    /// <summary>
+    /// Guard a required argument for a facet section. Throws <see cref="McpException"/> so the
+    /// specific message reaches the agent (the SDK surfaces McpException.Message but masks other
+    /// exceptions behind a generic wrapper), letting the agent self-correct the call.
+    /// </summary>
     public static string Require(string? value, string argName, string forSection)
         => string.IsNullOrWhiteSpace(value)
-            ? throw new ArgumentException($"{argName} is required for the '{forSection}' section.", argName)
+            ? throw new McpException($"{argName} is required for the '{forSection}' section.")
             : value;
 
     /// <summary>Guard a facet that requires a database name.</summary>

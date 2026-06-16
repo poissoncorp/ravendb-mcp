@@ -27,4 +27,28 @@ public sealed class McpToolContractTests
         Assert.All(toolsArray, tool => Assert.True(
             tool.GetProperty("annotations").GetProperty("readOnlyHint").GetBoolean()));
     }
+
+    // Missing-required-argument guards must reach the agent with the SPECIFIC message (thrown as
+    // McpException), not the SDK's generic "An error occurred invoking '<tool>'." wrapper — otherwise
+    // the agent can't tell which argument it forgot and can't self-correct. Each guard fires before
+    // any RavenDB call, so this runs against a dead URL with no server.
+    [Theory]
+    [InlineData("get_index", /*args*/ "{\"databaseName\":\"x\",\"indexName\":\"i\",\"include\":[\"Terms\"]}", "fieldName is required")]
+    [InlineData("get_network_details", "{\"databaseName\":\"x\",\"include\":[\"DatabaseInfo\"]}", "nodeTag is required")]
+    [InlineData("wait_for_completion", "{\"databaseName\":\"x\",\"condition\":\"Operation\",\"timeoutSeconds\":5}", "operationId is required")]
+    [InlineData("collect_debug_package", "{\"scope\":\"Database\"}", "databaseName is required")]
+    [InlineData("get_tasks", "{\"databaseName\":\"x\",\"taskId\":5}", "taskType is required")]
+    public async Task MissingRequiredArgumentSurfacesActionableMessage(string tool, string argsJson, string expectedMessage)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        await using var client = McpStdioClient.Start("http://127.0.0.1:1/");
+        await client.Initialize(timeout.Token);
+
+        var args = JsonSerializer.Deserialize<JsonElement>(argsJson);
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => client.CallTool(tool, args, timeout.Token));
+
+        // CallTool surfaces an isError result's text verbatim; the actionable guard message must be there.
+        Assert.Contains(expectedMessage, failure.Message);
+    }
 }

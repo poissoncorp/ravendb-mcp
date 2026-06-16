@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Text.Json;
+using ModelContextProtocol;
 using ModelContextProtocol.Server;
 using Raven.Client.Documents.Operations.OngoingTasks;
 using RavenDB.Mcp.RavenDB;
@@ -25,7 +26,7 @@ public static class TaskTools
         if (taskId is { } id)
             result["info"] = await client.GetOngoingTaskInfo(
                 databaseName, id,
-                taskType ?? throw new ArgumentException("taskType is required when taskId is given.", nameof(taskType)),
+                taskType ?? throw new McpException("taskType is required when taskId is given."),
                 cancellationToken);
 
         if (!string.IsNullOrWhiteSpace(subscriptionName))
@@ -34,7 +35,7 @@ public static class TaskTools
         if (includeDiagnostics)
             result["diagnostics"] = await TaskDiagnostics(
                 client, databaseName,
-                taskType ?? throw new ArgumentException("taskType is required when includeDiagnostics is set.", nameof(taskType)),
+                taskType ?? throw new McpException("taskType is required when includeDiagnostics is set."),
                 cancellationToken);
 
         if (result.Count == 0)
@@ -57,7 +58,7 @@ public static class TaskTools
             OngoingTaskType.Subscription => await client.GetSubscriptionDiagnostics(databaseName, cancellationToken),
             OngoingTaskType.Replication or OngoingTaskType.PullReplicationAsHub or OngoingTaskType.PullReplicationAsSink
                 => await client.GetReplicationTasksDetails(databaseName, cancellationToken),
-            _ => throw new ArgumentException($"No deep diagnostics available for task type '{taskType}'.", nameof(taskType))
+            _ => throw new McpException($"No deep diagnostics available for task type '{taskType}'.")
         };
 }
 
