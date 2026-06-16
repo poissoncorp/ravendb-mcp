@@ -42,6 +42,12 @@ public sealed class RavenDbTestFixture : IAsyncLifetime
 
     public async Task InitializeAsync()
     {
+        // When running against the secured server the fixture connects as the operator certificate,
+        // which the server only honors once it has been registered (Operator clearance) via the
+        // admin certificate. Do that before opening the operator-cert store, or every call 403s.
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        await SecuredRavenDbTestSettings.EnsureOperatorCertificateRegisteredAsync(timeout.Token);
+
         Store = DocumentStoreFactory.Create(Options);
 
         await Store.Maintenance.Server.SendAsync(

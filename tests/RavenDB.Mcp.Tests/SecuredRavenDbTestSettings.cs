@@ -1,4 +1,7 @@
+using System.Security.Cryptography.X509Certificates;
+using Raven.Client.ServerWide.Operations.Certificates;
 using RavenDB.Mcp.Configuration;
+using RavenDB.Mcp.RavenDB;
 
 namespace RavenDB.Mcp.Tests;
 
@@ -33,6 +36,46 @@ internal static class SecuredRavenDbTestSettings
 
     public static string MissingMessage =>
         $"Set {UrlVariable}, admin certificate variables, and operator certificate variables to run secured RavenDB tests.";
+
+    // The operator certificate is NOT a well-known admin — it must be registered with the server
+    // (Operator clearance) using the admin certificate before any client can authenticate with it.
+    // Every secured test that connects as the operator (the shared fixture and the connection tests)
+    // must ensure this first; registration is idempotent and runs once per test-process.
+    private static readonly SemaphoreSlim RegistrationLock = new(1, 1);
+    private static bool _operatorRegistered;
+
+    public static async Task EnsureOperatorCertificateRegisteredAsync(CancellationToken cancellationToken)
+    {
+        if (!IsConfigured || _operatorRegistered)
+            return;
+
+        await RegistrationLock.WaitAsync(cancellationToken);
+        try
+        {
+            if (_operatorRegistered)
+                return;
+
+            var operatorOptions = OperatorOptions;
+            using var adminStore = DocumentStoreFactory.Create(AdminOptions);
+            var operatorCertificate = X509CertificateLoader.LoadPkcs12FromFile(
+                operatorOptions.CertificatePath!,
+                operatorOptions.CertificatePassword);
+
+            await adminStore.Maintenance.Server.SendAsync(
+                new PutClientCertificateOperation(
+                    "ravendb-mcp-operator",
+                    operatorCertificate,
+                    new Dictionary<string, DatabaseAccess>(),
+                    SecurityClearance.Operator),
+                cancellationToken);
+
+            _operatorRegistered = true;
+        }
+        finally
+        {
+            RegistrationLock.Release();
+        }
+    }
 
     private static string GetRequired(string name)
     {
