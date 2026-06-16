@@ -2,6 +2,7 @@ using System.Net.WebSockets;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.Extensions.Options;
 using Raven.Client.Documents;
 using Raven.Client.Documents.Conventions;
@@ -44,14 +45,52 @@ public sealed partial class RavenDbAdminClient(
         if (record is null)
             throw new InvalidOperationException($"Database '{databaseName}' was not found.");
 
-        // DatabaseRecord keeps most payload data in fields.
-        return ToJson(record);
+        // DatabaseRecord keeps most payload data in fields; redact connection-string secrets (ADR-0011).
+        return RedactSecrets(ToJson(record));
     }
 
     private MaintenanceOperationExecutor ForDatabase(string databaseName)
     {
         ValidateDatabaseName(databaseName);
         return store.Maintenance.ForDatabase(databaseName);
+    }
+
+    // Connection-string sections embed secrets (SQL passwords, S3/Azure/GCP keys, SAS tokens,
+    // Elasticsearch/AI API keys). Mask any value whose key is a known secret field before it leaves
+    // the server (ADR-0011). Exact key match (case-insensitive) to avoid over-redacting unrelated fields.
+    private static readonly HashSet<string> SecretKeys = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Password", "ApiKey", "Secret", "SecretKey", "AccessKey", "AccountKey",
+        "AwsSecretKey", "AwsAccessKey", "SasToken", "ConnectionString", "GoogleCredentialsJson"
+    };
+
+    private const string RedactedValue = "***redacted***";
+
+    private static JsonElement RedactSecrets(JsonElement element)
+    {
+        var node = JsonNode.Parse(element.GetRawText());
+        RedactNode(node);
+        return JsonSerializer.SerializeToElement(node);
+    }
+
+    private static void RedactNode(JsonNode? node)
+    {
+        switch (node)
+        {
+            case JsonObject obj:
+                foreach (var property in obj.ToArray())
+                {
+                    if (property.Value is JsonValue && SecretKeys.Contains(property.Key))
+                        obj[property.Key] = RedactedValue;
+                    else
+                        RedactNode(property.Value);
+                }
+                break;
+            case JsonArray array:
+                foreach (var item in array)
+                    RedactNode(item);
+                break;
+        }
     }
 
     private Task<T> ExecuteServerCommand<T>(RavenCommand<T> command, CancellationToken cancellationToken)
